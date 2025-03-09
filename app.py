@@ -4,6 +4,8 @@ import logging
 import time
 from llama_index.llms.ollama import Ollama
 import subprocess
+import json
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
 
@@ -23,7 +25,7 @@ def get_ollama_models():
         return models
     except Exception as e:
         logging.error(f"Error getting Ollama models: {str(e)}")
-        return ["llama3.1:latest"]
+        return ["llama2:latest"]
 
 def stream_chat(model, messages):
     try:
@@ -40,6 +42,19 @@ def stream_chat(model, messages):
         logging.error(f"Error during streaming: {str(e)}")
         raise e
 
+def export_chat_history(model, messages):
+    """Export chat history to a JSON file"""
+    if not messages:
+        return None
+
+    chat_data = {
+        "model": model,
+        "timestamp": datetime.now().isoformat(),
+        "messages": messages
+    }
+
+    return json.dumps(chat_data, indent=2)
+
 def main():
     st.title("Chat with LLMs Models")
     logging.info("App started")
@@ -47,6 +62,17 @@ def main():
     available_models = get_ollama_models()
     model = st.sidebar.selectbox("Choose a model", available_models)
     logging.info(f"Model selected: {model}")
+
+    # Add download button in sidebar
+    if model in st.session_state.model_messages and st.session_state.model_messages[model]:
+        chat_history = export_chat_history(model, st.session_state.model_messages[model])
+        if chat_history:
+            st.sidebar.download_button(
+                label="Download Chat History",
+                data=chat_history,
+                file_name=f"chat_history_{model}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                mime="application/json"
+            )
 
     # Initialize message history for new models
     if model not in st.session_state.model_messages:
