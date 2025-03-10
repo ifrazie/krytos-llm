@@ -45,6 +45,8 @@ def get_ollama_models():
         return ["llama2:latest"]
 
 async def stream_chat_with_tools(model, messages):
+    tool = None
+    final_response = None
     try:
         client = ollama.AsyncClient()
         tools = load_tool_configs()
@@ -76,17 +78,17 @@ async def stream_chat_with_tools(model, messages):
 
                     logging.info(f'Function output: {tool_output}')
 
-            if tool_output is not None:
-                messages.append(response.message)
-                messages.append({'role': 'tool', 'content': str(tool_output), 'name': tool.function.name})
-                final_response = await client.chat(model, messages=[{"role": m["role"], "content": m["content"]} for m in messages])
+        if tool_output is not None:
+            messages.append(response.message)
+            messages.append({'role': 'tool', 'content': str(tool_output), 'name': tool.function.name})
+            final_response = await client.chat(model, messages=[{"role": m["role"], "content": m["content"]} for m in messages])
 
-                # Combine the final response with tool information
-                complete_response = final_response.message.content
-                if tool_info:
-                    complete_response += "\n\n💡 Tool Usage Details:" + "".join(tool_info)
+        # Combine the final response with tool information
+        complete_response = final_response.message.content
+        if tool_info:
+            complete_response += "\n\n💡 Tool Usage Details:" + "".join(tool_info)
 
-                return complete_response
+            return complete_response
 
         return response.message.content
     except Exception as e:
