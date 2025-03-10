@@ -1,0 +1,41 @@
+tools:
+  - name: get_weather
+    description: Get weather information for a city
+    parameters:
+      type: object
+      properties:
+        city:
+          type: string
+          description: The name of the city
+        country_code:
+          type: string
+          description: The two-letter country code
+      required:
+        - city
+        - country_code
+
+  - name: add_two_numbers
+    description: Add two numbers together
+    parameters:
+      type: object
+      required: [ a, b ]
+      properties:
+        a:
+          type: integer
+          description: The first number
+        b:
+          type: integer
+          description: The second number
+
+  - name: subtract_two_numbers
+    description: Subtract two numbers
+    parameters:
+      type: object
+      required: [ a, b ]
+      properties:
+        a:
+          type: integer
+          description: The first number
+        b:
+          type: integer
+          description: The second number
