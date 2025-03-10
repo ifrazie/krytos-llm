@@ -32,7 +32,6 @@ def load_tool_configs() -> List[Dict[str, Any]]:
         logging.error(f"Error loading tool configs: {str(e)}")
         return []
 
-# Define tool functions
 def add_two_numbers(a: int, b: int) -> int:
     """Add two numbers together"""
     return a + b
@@ -41,7 +40,6 @@ def subtract_two_numbers(a: int, b: int) -> int:
     """Subtract two numbers"""
     return a - b
 
-# Map function names to their implementations
 available_functions = {
     'add_two_numbers': add_two_numbers,
     'subtract_two_numbers': subtract_two_numbers,
@@ -60,7 +58,6 @@ def get_ollama_models():
 async def stream_chat_with_tools(model, messages):
     try:
         client = ollama.AsyncClient()
-        # Load tool configurations from YAML
         tools = load_tool_configs()
 
         response: ChatResponse = await client.chat(
@@ -70,18 +67,37 @@ async def stream_chat_with_tools(model, messages):
         )
 
         tool_output = None
+        tool_info = []
+
         if response.message.tool_calls:
             for tool in response.message.tool_calls:
                 if function_to_call := available_functions.get(tool.function.name):
+                    # Create tool call info string
+                    tool_call_info = (
+                        f"\n🔧 Tool Called: {tool.function.name}\n"
+                        f"📝 Parameters: {json.dumps(tool.function.arguments, indent=2)}\n"
+                    )
+
                     logging.info(f'Calling function: {tool.function.name}')
                     tool_output = function_to_call(**tool.function.arguments)
+
+                    # Add result to tool info
+                    tool_call_info += f"📊 Result: {tool_output}\n"
+                    tool_info.append(tool_call_info)
+
                     logging.info(f'Function output: {tool_output}')
 
             if tool_output is not None:
                 messages.append(response.message)
                 messages.append({'role': 'tool', 'content': str(tool_output), 'name': tool.function.name})
                 final_response = await client.chat(model, messages=[{"role": m["role"], "content": m["content"]} for m in messages])
-                return final_response.message.content
+
+                # Combine the final response with tool information
+                complete_response = final_response.message.content
+                if tool_info:
+                    complete_response += "\n\n💡 Tool Usage Details:" + "".join(tool_info)
+
+                return complete_response
 
         return response.message.content
     except Exception as e:
@@ -104,7 +120,6 @@ def main():
     st.title("Chat with LLMs Models")
     logging.info("App started")
 
-    # Load tools configuration
     tools = load_tool_configs()
     if not tools:
         st.sidebar.warning("No tool configurations loaded")
@@ -132,11 +147,11 @@ def main():
 
     for message in current_messages:
         with st.chat_message(message["role"]):
-            st.write(message["content"])
+            st.markdown(message["content"])
 
     if prompt := st.chat_input("Your question"):
         with st.chat_message("user"):
-            st.write(prompt)
+            st.markdown(prompt)
         current_messages.append({"role": "user", "content": prompt})
         logging.info(f"User input: {prompt}")
 
@@ -154,7 +169,7 @@ def main():
                             "role": "assistant",
                             "content": response_message_with_duration
                         })
-                        st.write(response_message)
+                        st.markdown(response_message)
                         st.write(f"Duration: {duration:.2f} seconds")
                         logging.info(f"Response: {response_message}, Duration: {duration:.2f} s")
 
