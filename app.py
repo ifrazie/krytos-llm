@@ -9,6 +9,8 @@ import ollama
 from ollama import ChatResponse
 import yaml
 from typing import List, Dict, Any
+# Import the functions and dictionary from tool_functions.py
+from tool_functions import available_functions
 
 logging.basicConfig(level=logging.INFO)
 
@@ -31,19 +33,6 @@ def load_tool_configs() -> List[Dict[str, Any]]:
     except Exception as e:
         logging.error(f"Error loading tool configs: {str(e)}")
         return []
-
-def add_two_numbers(a: int, b: int) -> int:
-    """Add two numbers together"""
-    return a + b
-
-def subtract_two_numbers(a: int, b: int) -> int:
-    """Subtract two numbers"""
-    return a - b
-
-available_functions = {
-    'add_two_numbers': add_two_numbers,
-    'subtract_two_numbers': subtract_two_numbers,
-}
 
 def get_ollama_models():
     try:
