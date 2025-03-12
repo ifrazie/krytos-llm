@@ -42,7 +42,7 @@ def get_ollama_models():
         return models
     except Exception as e:
         logging.error(f"Error getting Ollama models: {str(e)}")
-        return ["llama2:latest"]
+        return ["llama3.1:latest"]
 
 async def stream_chat_with_tools(model, messages):
     tool = None
