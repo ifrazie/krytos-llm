@@ -1,5 +1,6 @@
 import streamlit as st
 import logging
+import os
 import time
 import subprocess
 import json
@@ -11,15 +12,51 @@ import yaml
 from typing import List, Dict, Any
 # Import the functions and dictionary from tool_functions.py
 from tool_functions import available_functions
+from document_loader import DocumentLoader
 
 logging.basicConfig(level=logging.INFO)
 
 # Initialize session state
 if 'model_messages' not in st.session_state:
     st.session_state.model_messages = {}
+if 'document_collection' not in st.session_state:
+    st.session_state.document_collection = None
+
+    # Add this section for document upload and processing
+
+
+def handle_document_upload():
+    uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
+    if uploaded_file is not None:
+        # Save the uploaded file temporarily
+        with open("temp.pdf", "wb") as f:
+            f.write(uploaded_file.getvalue())
+
+        try:
+            # Initialize document loader
+            loader = DocumentLoader()
+            # Load and process the document
+            documents = loader.load_single_pdf("temp.pdf")
+            # Setup Chroma and store documents
+            collection = loader.setup_chroma(documents)
+            st.session_state.document_collection = collection
+            st.success("Document processed and stored successfully!")
+        except Exception as e:
+            st.error(f"Error processing document: {str(e)}")
+        finally:
+            # Clean up temporary file
+            if os.path.exists("temp.pdf"):
+                os.remove("temp.pdf")
 
 if 'messages' not in st.session_state:
     st.session_state.messages = []
+
+def query_documents(query: str, collection):
+    results = collection.query(
+        query_texts=[query],
+        n_results=3
+    )
+    return results
 
 def load_tool_configs() -> List[Dict[str, Any]]:
     try:
@@ -108,7 +145,13 @@ def export_chat_history(model, messages):
     return json.dumps(chat_data, indent=2)
 
 def main():
-    st.title("Chat with LLMs Models")
+    st.title("PenTestLLM")
+
+    # Document upload section
+    with st.sidebar:
+        st.header("Document Upload")
+        handle_document_upload()
+
     logging.info("App started")
 
     tools = load_tool_configs()
@@ -153,6 +196,16 @@ def main():
 
                 with st.spinner("Writing..."):
                     try:
+                        if st.session_state.document_collection:
+                            relevant_docs = query_documents(current_messages[-1]["content"],
+                                                         st.session_state.document_collection)
+                            if relevant_docs and relevant_docs['documents']:
+                                context = "\nContext from documents:\n" + "\n".join(relevant_docs['documents'][0])
+                                # Add context to the messages
+                                current_messages.append({
+                                    "role": "system",
+                                    "content": f"Here's relevant context for the query: {context}"
+                                })
                         response_message = asyncio.run(stream_chat_with_tools(model, current_messages))
                         duration = time.time() - start_time
                         response_message_with_duration = f"{response_message}\n\nDuration: {duration:.2f} seconds"
