@@ -1,30 +1,4 @@
 tools:
-  - name: add_two_numbers
-    description: Add two numbers together
-    parameters:
-      type: object
-      required: [ a, b ]
-      properties:
-        a:
-          type: integer
-          description: The first number
-        b:
-          type: integer
-          description: The second number
-
-  - name: subtract_two_numbers
-    description: Subtract two numbers
-    parameters:
-      type: object
-      required: [ a, b ]
-      properties:
-        a:
-          type: integer
-          description: The first number
-        b:
-          type: integer
-          description: The second number
-  
   - name : get_info
     description: Get the IP address of a given domain
     parameters:
@@ -33,5 +7,14 @@ tools:
       properties:
         domain:
           type: string
-          description: The domain name to get the IP address for
+          description: The target domain name
   
+  - name: scan_network
+    description: Scan a network for open ports
+    parameters:
+      type: object
+      required: [ target ]
+      properties:
+        target:
+          type: string
+          description: The IP address to scan for open ports
