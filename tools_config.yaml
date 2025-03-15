@@ -25,4 +25,13 @@ tools:
           type: integer
           description: The second number
   
+  - name : get_info
+    description: Get the IP address of a given domain
+    parameters:
+      type: object
+      required: [ domain ]
+      properties:
+        domain:
+          type: string
+          description: The domain name to get the IP address for
   

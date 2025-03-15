@@ -10,6 +10,7 @@ import ollama
 from ollama import ChatResponse
 import yaml
 from typing import List, Dict, Any
+
 # Import the functions and dictionary from tool_functions.py
 from tool_functions import available_functions
 from document_loader import DocumentLoader
@@ -22,9 +23,11 @@ if 'model_messages' not in st.session_state:
 if 'document_collection' not in st.session_state:
     st.session_state.document_collection = None
 
-    # Add this section for document upload and processing
+# Add this after other session state initializations
+if 'function_calling_enabled' not in st.session_state:
+    st.session_state.function_calling_enabled = False
 
-
+# Add this section for document upload and processing
 def handle_document_upload():
     uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
     if uploaded_file is not None:
@@ -109,7 +112,7 @@ async def stream_chat_with_tools(model, messages):
     final_response = None
     try:
         client = ollama.AsyncClient()
-        tools = load_tool_configs()
+        tools = load_tool_configs() if st.session_state.function_calling_enabled else None
 
         response: ChatResponse = await client.chat(
             model,
@@ -120,7 +123,7 @@ async def stream_chat_with_tools(model, messages):
         tool_output = None
         tool_info = []
 
-        if response.message.tool_calls:
+        if st.session_state.function_calling_enabled and response.message.tool_calls:
             for tool in response.message.tool_calls:
                 if function_to_call := available_functions.get(tool.function.name):
                     # Create tool call info string
@@ -142,12 +145,9 @@ async def stream_chat_with_tools(model, messages):
             messages.append(response.message)
             messages.append({'role': 'tool', 'content': str(tool_output), 'name': tool.function.name})
             final_response = await client.chat(model, messages=[{"role": m["role"], "content": m["content"]} for m in messages])
-
-        # Combine the final response with tool information
-        complete_response = final_response.message.content
-        if tool_info:
-            complete_response += "\n\n💡 Tool Usage Details:" + "".join(tool_info)
-
+            complete_response = final_response.message.content
+            if tool_info:
+                complete_response += "\n\n💡 Tool Usage Details:" + "".join(tool_info)
             return complete_response
 
         return response.message.content
@@ -188,14 +188,24 @@ def main():
     with st.sidebar:
         st.header("Document Upload")
         handle_document_upload()
+        
+        # Add function calling toggle
+        st.header("Settings")
+        st.session_state.function_calling_enabled = st.toggle(
+            "Enable Function Calling",
+            value=st.session_state.function_calling_enabled,
+            help="Toggle to enable/disable function calling capabilities"
+        )
 
     logging.info("App started")
 
-    tools = load_tool_configs()
-    if not tools:
-        st.sidebar.warning("No tool configurations loaded")
-    else:
-        st.sidebar.success(f"Loaded {len(tools)} tools")
+    # Update the tools loading section to show status based on toggle
+    tools = load_tool_configs() if st.session_state.function_calling_enabled else []
+    if st.session_state.function_calling_enabled:
+        if not tools:
+            st.sidebar.warning("No tool configurations loaded")
+        else:
+            st.sidebar.success(f"Loaded {len(tools)} tools")
 
     available_models = get_ollama_models()
     model = st.sidebar.selectbox("Choose a model", available_models)
