@@ -2,6 +2,8 @@ import os
 from langchain_community.document_loaders import PyPDFLoader, PyPDFDirectoryLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import chromadb
+import openai
+from typing import List, Union
 
 class DocumentLoader:
     def __init__(self, chroma_path="chroma"):
@@ -45,3 +47,19 @@ class DocumentLoader:
             metadatas=metadatas
         )
         return collection
+
+    def get_embeddings(self, texts: List[str]) -> List[List[float]]:
+        """Get embeddings for a list of texts."""
+        embeddings = []
+        for text in texts:
+            embedding = self.get_embedding(text)
+            embeddings.append(embedding)
+        return embeddings
+
+    def get_embedding(self, text: str) -> List[float]:
+        """Get embedding for a single text."""
+        response = openai.Embedding.create(
+            input=text,
+            model="text-embedding-ada-002"
+        )
+        return response['data'][0]['embedding']

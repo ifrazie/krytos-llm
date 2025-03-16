@@ -10,10 +10,16 @@ import ollama
 from ollama import ChatResponse
 import yaml
 from typing import List, Dict, Any
+from document_store import MilvusDocumentStore
 
 # Import the functions and dictionary from tool_functions.py
 from tool_functions import available_functions
 from document_loader import DocumentLoader
+
+from dotenv import load_dotenv
+
+# Add this near the top of the file, after imports
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 
@@ -27,39 +33,70 @@ if 'document_collection' not in st.session_state:
 if 'function_calling_enabled' not in st.session_state:
     st.session_state.function_calling_enabled = False
 
+# Add to session state initialization
+if 'milvus_store' not in st.session_state:
+    st.session_state.milvus_store = None
+
 # Add this section for document upload and processing
 def handle_document_upload():
     uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
     if uploaded_file is not None:
-        # Save the uploaded file temporarily
         with open("temp.pdf", "wb") as f:
             f.write(uploaded_file.getvalue())
 
         try:
             # Initialize document loader
             loader = DocumentLoader()
-            # Load and process the document
             documents = loader.load_single_pdf("temp.pdf")
-            # Setup Chroma and store documents
-            collection = loader.setup_chroma(documents)
-            st.session_state.document_collection = collection
-            st.success("Document processed and stored successfully!")
+            
+            # Try Milvus first
+            try:
+                if st.session_state.milvus_store is None:
+                    st.session_state.milvus_store = MilvusDocumentStore()
+                
+                if st.session_state.milvus_store.is_connected:
+                    embeddings = loader.get_embeddings(documents)
+                    st.session_state.milvus_store.add_documents(documents, embeddings)
+                    st.success("Document processed and stored in Milvus successfully!")
+                else:
+                    # Fallback to ChromaDB
+                    st.warning("Milvus not available, falling back to ChromaDB")
+                    collection = loader.setup_chroma(documents)
+                    st.session_state.document_collection = collection
+                    st.success("Document processed and stored in ChromaDB successfully!")
+            
+            except Exception as e:
+                # Fallback to ChromaDB on any Milvus error
+                st.warning(f"Milvus error: {str(e)}. Falling back to ChromaDB")
+                collection = loader.setup_chroma(documents)
+                st.session_state.document_collection = collection
+                st.success("Document processed and stored in ChromaDB successfully!")
+                
         except Exception as e:
             st.error(f"Error processing document: {str(e)}")
         finally:
-            # Clean up temporary file
             if os.path.exists("temp.pdf"):
                 os.remove("temp.pdf")
 
 if 'messages' not in st.session_state:
     st.session_state.messages = []
 
-def query_documents(query: str, collection):
-    results = collection.query(
-        query_texts=[query],
-        n_results=3
-    )
-    return results
+def query_documents(query: str, store):
+    try:
+        if isinstance(store, MilvusDocumentStore) and store.is_connected:
+            loader = DocumentLoader()
+            query_embedding = loader.get_embedding(query)
+            results = store.query(query_embedding)
+            return {
+                "documents": [result["content"] for result in results],
+                "scores": [result["score"] for result in results]
+            }
+        else:
+            # Use ChromaDB query
+            return store.query(query_texts=[query], n_results=3)
+    except Exception as e:
+        logging.error(f"Error querying documents: {str(e)}")
+        return {"documents": [], "scores": []}
 
 def load_tool_configs() -> List[Dict[str, Any]]:
     try:
@@ -249,9 +286,9 @@ def main():
 
                 with st.spinner("Writing..."):
                     try:
-                        if st.session_state.document_collection:
+                        if st.session_state.milvus_store:
                             relevant_docs = query_documents(current_messages[-1]["content"],
-                                                         st.session_state.document_collection)
+                                                         st.session_state.milvus_store)
                             if relevant_docs and relevant_docs['documents']:
                                 context = "\nContext from documents:\n" + "\n".join(relevant_docs['documents'][0])
                                 # Add context to the messages
