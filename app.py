@@ -135,23 +135,15 @@ async def stream_chat_with_tools(model, messages):
                     logging.info(f'Calling function: {tool.function.name}')
                     tool_output = function_to_call(**tool.function.arguments)
 
-                    # Format tool output based on type
-                    if isinstance(tool_output, (list, dict)):
-                        formatted_output = json.dumps(tool_output, indent=2)
-                    else:
-                        formatted_output = str(tool_output)
-
                     # Add result to tool info
-                    tool_call_info += f"📊 Result: {formatted_output}\n"
+                    tool_call_info += f"📊 Result: {tool_output}\n"
                     tool_info.append(tool_call_info)
 
                     logging.info(f'Function output: {tool_output}')
 
         if tool_output is not None:
             messages.append(response.message)
-            # Convert tool output to string format for the message
-            tool_output_str = json.dumps(tool_output) if isinstance(tool_output, (list, dict)) else str(tool_output)
-            messages.append({'role': 'tool', 'content': tool_output_str, 'name': tool.function.name})
+            messages.append({'role': 'tool', 'content': str(tool_output), 'name': tool.function.name})
             final_response = await client.chat(model, messages=[{"role": m["role"], "content": m["content"]} for m in messages])
             complete_response = final_response.message.content
             if tool_info:

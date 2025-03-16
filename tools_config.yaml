@@ -13,8 +13,28 @@ tools:
     description: Scan a network for open ports
     parameters:
       type: object
-      required: [ target ]
+      required: [ ip_address ]
       properties:
-        target:
+        ip_address:
           type: string
           description: The IP address to scan for open ports
+
+  - name: check_vulnerability
+    description: Check for vulnerabilities in a given domain
+    parameters:
+      type: object
+      required: [ domain ]
+      properties:
+        domain:
+          type: string
+          description: The domain to check for vulnerabilities
+  
+  - name: sql_injection
+    description: Check for SQL injection vulnerabilities in a given URL
+    parameters:
+      type: object
+      required: [ url ]
+      properties:
+        url:
+          type: string
+          description: The URL to check for SQL injection vulnerabilities
