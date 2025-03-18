@@ -6,6 +6,7 @@ import dns.resolver
 import requests
 from ftplib import FTP
 from datetime import datetime
+import ipaddress
 
 # Simulated Exploitation
 def sql_injection(url: str) -> dict:
@@ -53,6 +54,29 @@ SUPPORTED_SERVICES = {
     }
 }
 
+def _is_valid_ip(ip_str: str) -> bool:
+    """Check if string is valid IP address"""
+    try:
+        ipaddress.ip_address(ip_str)
+        return True
+    except ValueError:
+        return False
+
+def _get_target_info(target: str) -> Dict[str, Any]:
+    """Get IP for domain or domain for IP if reverse DNS available"""
+    try:
+        if _is_valid_ip(target):
+            try:
+                domain = socket.gethostbyaddr(target)[0]
+                return {"ip": target, "domain": domain, "type": "ip"}
+            except socket.herror:
+                return {"ip": target, "domain": None, "type": "ip"}
+        else:
+            ip = socket.gethostbyname(target)
+            return {"ip": ip, "domain": target, "type": "domain"}
+    except socket.gaierror:
+        raise ValueError(f"Invalid target: {target}")
+
 def _check_dns(domain: str) -> Dict[str, Any]:
     results = {"service": "DNS", "vulnerabilities": []}
     try:
@@ -68,10 +92,15 @@ def _check_dns(domain: str) -> Dict[str, Any]:
         results["error"] = str(e)
     return results
 
-def _check_http(domain: str) -> Dict[str, Any]:
+def _check_http(target: str) -> Dict[str, Any]:
     results = {"service": "HTTP", "vulnerabilities": []}
     try:
-        response = requests.get(f"http://{domain}", timeout=5)
+        # Use IP if no domain available
+        target_info = _get_target_info(target)
+        url = target_info["domain"] if target_info["domain"] else target_info["ip"]
+        
+        response = requests.get(f"http://{url}", timeout=5, 
+                              headers={"Host": target_info["domain"]} if target_info["domain"] else {})
         results["vulnerabilities"].extend([
             {
                 "check": "HTTP Headers",
@@ -92,9 +121,12 @@ def _check_http(domain: str) -> Dict[str, Any]:
         results["error"] = str(e)
     return results
 
-def _check_https(domain: str) -> Dict[str, Any]:
+def _check_https(target: str) -> Dict[str, Any]:
     results = {"service": "HTTPS", "vulnerabilities": []}
     try:
+        target_info = _get_target_info(target)
+        domain = target_info["domain"] if target_info["domain"] else target_info["ip"]
+        
         ctx = ssl.create_default_context()
         with ctx.wrap_socket(socket.socket(), server_hostname=domain) as s:
             s.connect((domain, 443))
@@ -115,9 +147,12 @@ def _check_https(domain: str) -> Dict[str, Any]:
         results["error"] = str(e)
     return results
 
-def _check_ftp(domain: str) -> Dict[str, Any]:
+def _check_ftp(target: str) -> Dict[str, Any]:
     results = {"service": "FTP", "vulnerabilities": []}
     try:
+        target_info = _get_target_info(target)
+        domain = target_info["domain"] if target_info["domain"] else target_info["ip"]
+        
         ftp = FTP(domain, timeout=5)
         anonymous = ftp.login()  # Try anonymous login
         results["vulnerabilities"].extend([
@@ -133,63 +168,76 @@ def _check_ftp(domain: str) -> Dict[str, Any]:
     return results
 
 # Vulnerability Scanning
-def check_vulnerability(domain: str, service_name: str = None) -> Dict[str, Any]:
+def check_vulnerability(target: str, service_name: str = None) -> Dict[str, Any]:
     """Scan for vulnerabilities in specific service or all services
     
     Args:
-        domain (str): The domain to scan for vulnerabilities
-        service_name (str, optional): Specific service to check. Defaults to None (all services)
+        target (str): Domain name or IP address to scan
+        service_name (str, optional): Specific service to check. 
+        Defaults to None
     
-    Returns:
-        Dict[str, Any]: Vulnerability scan results
+    Returns: A dictionary containing the results of the scan.
     """
-    service_check_map = {
-        'dns': _check_dns,
-        'http': _check_http,
-        'https': _check_https,
-        'ftp': _check_ftp
-    }
-
-    results = {
-        "status": "completed",
-        "target": domain,
-        "timestamp": datetime.now().isoformat(),
-        "services": []
-    }
-
-    if service_name:
-        if service_name.lower() not in SUPPORTED_SERVICES:
-            return {
-                "status": "error",
-                "message": f"Unsupported service: {service_name}",
-                "supported_services": list(SUPPORTED_SERVICES.keys())
-            }
+    try:
+        target_info = _get_target_info(target)
         
-        check_func = service_check_map.get(service_name.lower())
-        try:
-            service_result = check_func(domain)
-            results["services"].append(service_result)
-        except Exception as e:
-            results["services"].append({
-                "service": service_name.upper(),
-                "error": str(e)
-            })
-    else:
-        # Check all services
-        for service, check_func in service_check_map.items():
+        results = {
+            "status": "completed",
+            "target": target,
+            "target_type": target_info["type"],
+            "resolved_ip": target_info["ip"],
+            "resolved_domain": target_info["domain"],
+            "timestamp": datetime.now().isoformat(),
+            "services": []
+        }
+        
+        service_check_map = {
+            'dns': _check_dns,
+            'http': _check_http,
+            'https': _check_https,
+            'ftp': _check_ftp
+        }
+
+        if service_name:
+            if service_name.lower() not in SUPPORTED_SERVICES:
+                return {
+                    "status": "error",
+                    "message": f"Unsupported service: {service_name}",
+                    "supported_services": list(SUPPORTED_SERVICES.keys())
+                }
+            
+            check_func = service_check_map.get(service_name.lower())
             try:
-                service_result = check_func(domain)
+                service_result = check_func(target)
                 results["services"].append(service_result)
             except Exception as e:
                 results["services"].append({
-                    "service": service.upper(),
+                    "service": service_name.upper(),
                     "error": str(e)
                 })
+        else:
+            # Check all services
+            for service, check_func in service_check_map.items():
+                try:
+                    service_result = check_func(target)
+                    results["services"].append(service_result)
+                except Exception as e:
+                    results["services"].append({
+                        "service": service.upper(),
+                        "error": str(e)
+                    })
 
-    # Calculate risk assessment based on findings
-    results["risk_assessment"] = _calculate_risk_assessment(results["services"])
-    
-    return results
+        # Calculate risk assessment based on findings
+        results["risk_assessment"] = _calculate_risk_assessment(results["services"])
+        
+        return results
+
+    except ValueError as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "target": target
+        }
 
 def _calculate_risk_assessment(service_results: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Calculate overall risk assessment based on service findings"""
