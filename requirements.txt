@@ -1,13 +1,17 @@
-streamlit~=1.43.2
-ollama~=0.4.7
-yaml~=0.2.5
+streamlit
+ollama
+pyyaml
 setuptools~=75.9.1
 langchain-core~=0.3.43
-pyyaml~=6.0.2
-langchain-community~=0.3.18
-langchain~=0.3.19
-langchain-text-splitters~=0.3.6
+langchain-community
+langchain
+langchain-text-splitters
 requests~=2.32.3
 langchain-anthropic~=0.3.9
 langgraph~=0.3.5
 chromadb~=0.6.2
+
+# Added dependency for custom CSS rendering (if needed)
+streamlit-html-components
+pymilvus
+sentence-transformers

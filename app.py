@@ -10,6 +10,7 @@ import ollama
 from ollama import ChatResponse
 import yaml
 from typing import List, Dict, Any
+from pymilvus import connections, Collection, utility
 
 # Import the functions and dictionary from tool_functions.py
 from tool_functions import available_functions
@@ -22,15 +23,40 @@ if 'model_messages' not in st.session_state:
     st.session_state.model_messages = {}
 if 'document_collection' not in st.session_state:
     st.session_state.document_collection = None
+if 'milvus_connected' not in st.session_state:
+    st.session_state.milvus_connected = False
 
 # Add this after other session state initializations
 if 'function_calling_enabled' not in st.session_state:
     st.session_state.function_calling_enabled = False
 
+# Connect to Milvus
+def connect_to_milvus(host="localhost", port="19530"):
+    try:
+        connections.connect("default", host=host, port=port)
+        st.session_state.milvus_connected = True
+        logging.info(f"Successfully connected to Milvus at {host}:{port}")
+        return True
+    except Exception as e:
+        logging.error(f"Failed to connect to Milvus: {str(e)}")
+        st.session_state.milvus_connected = False
+        return False
+
 # Add this section for document upload and processing
 def handle_document_upload():
     uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
-    if uploaded_file is not None:
+    
+    # Add Milvus connection settings
+    with st.expander("Milvus Connection Settings"):
+        milvus_host = st.text_input("Milvus Host", "localhost")
+        milvus_port = st.text_input("Milvus Port", "19530")
+        if st.button("Connect to Milvus"):
+            if connect_to_milvus(milvus_host, milvus_port):
+                st.success("Connected to Milvus server!")
+            else:
+                st.error("Failed to connect to Milvus server")
+    
+    if uploaded_file is not None and st.session_state.milvus_connected:
         # Save the uploaded file temporarily
         with open("temp.pdf", "wb") as f:
             f.write(uploaded_file.getvalue())
@@ -40,26 +66,58 @@ def handle_document_upload():
             loader = DocumentLoader()
             # Load and process the document
             documents = loader.load_single_pdf("temp.pdf")
-            # Setup Chroma and store documents
-            collection = loader.setup_chroma(documents)
-            st.session_state.document_collection = collection
-            st.success("Document processed and stored successfully!")
+            # Store documents in Milvus
+            collection_name = "document_" + datetime.now().strftime("%Y%m%d%H%M%S")
+            collection = loader.setup_milvus(documents, collection_name)
+            st.session_state.document_collection = collection_name
+            st.success(f"Document processed and stored in Milvus collection: {collection_name}")
         except Exception as e:
             st.error(f"Error processing document: {str(e)}")
         finally:
             # Clean up temporary file
             if os.path.exists("temp.pdf"):
                 os.remove("temp.pdf")
+    elif uploaded_file is not None and not st.session_state.milvus_connected:
+        st.warning("Please connect to Milvus server first before uploading documents")
 
 if 'messages' not in st.session_state:
     st.session_state.messages = []
 
-def query_documents(query: str, collection):
-    results = collection.query(
-        query_texts=[query],
-        n_results=3
-    )
-    return results
+def query_documents(query: str, collection_name: str):
+    try:
+        if not utility.has_collection(collection_name):
+            logging.error(f"Collection {collection_name} does not exist")
+            return {"documents": []}
+            
+        collection = Collection(collection_name)
+        collection.load()
+        
+        search_params = {
+            "metric_type": "COSINE",
+            "params": {"nprobe": 10}
+        }
+        
+        # Get vector embedding for the query (this assumes your DocumentLoader has this functionality)
+        loader = DocumentLoader()
+        query_vector = loader.get_embeddings([query])[0]
+        
+        results = collection.search(
+            data=[query_vector],
+            anns_field="embedding",
+            param=search_params,
+            limit=3,
+            output_fields=["content"]
+        )
+        
+        documents = []
+        if results and len(results) > 0:
+            for hit in results[0]:
+                documents.append(hit.entity.get('content'))
+        
+        return {"documents": [documents] if documents else []}
+    except Exception as e:
+        logging.error(f"Error querying Milvus: {str(e)}")
+        return {"documents": []}
 
 def load_tool_configs() -> List[Dict[str, Any]]:
     try:
@@ -232,10 +290,39 @@ def main():
 
     current_messages = st.session_state.model_messages[model]
 
+    # Add custom CSS for advanced styling
+    st.markdown(
+        """
+        <style>
+        .st-chat-message {
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            padding: 10px;
+            margin-bottom: 10px;
+            background-color: #f9f9f9;
+        }
+        .st-chat-message-user {
+            background-color: #e6f7ff;
+        }
+        .st-chat-message-assistant {
+            background-color: #fffbe6;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # Update chat message rendering to use custom classes
     for message in current_messages:
         with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+            if message["role"] == "user":
+                st.markdown(f'<div class="st-chat-message st-chat-message-user">{message["content"]}</div>', unsafe_allow_html=True)
+            elif message["role"] == "assistant":
+                st.markdown(f'<div class="st-chat-message st-chat-message-assistant">{message["content"]}</div>', unsafe_allow_html=True)
+            else:
+                st.markdown(f'<div class="st-chat-message">{message["content"]}</div>', unsafe_allow_html=True)
 
+    # Wrap processing logic with st.spinner to show a loading indicator
     if prompt := st.chat_input("Your question"):
         with st.chat_message("user"):
             st.markdown(prompt)
@@ -247,18 +334,19 @@ def main():
                 start_time = time.time()
                 logging.info("Generating response")
 
-                with st.spinner("Writing..."):
+                with st.spinner("Processing your input..."):
                     try:
                         if st.session_state.document_collection:
                             relevant_docs = query_documents(current_messages[-1]["content"],
                                                          st.session_state.document_collection)
-                            if relevant_docs and relevant_docs['documents']:
+                            if relevant_docs and relevant_docs['documents'] and relevant_docs['documents'][0]:
                                 context = "\nContext from documents:\n" + "\n".join(relevant_docs['documents'][0])
                                 # Add context to the messages
                                 current_messages.append({
                                     "role": "system",
                                     "content": f"Here's relevant context for the query: {context}"
                                 })
+                                logging.info(f"Added context from Milvus: {len(relevant_docs['documents'][0])} documents")
                         response_message = asyncio.run(stream_chat_with_tools(model, current_messages))
                         duration = time.time() - start_time
                         response_message_with_duration = f"{response_message}\n\nDuration: {duration:.2f} seconds"
