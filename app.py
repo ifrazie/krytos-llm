@@ -240,7 +240,7 @@ def export_chat_history(model, messages):
     return json.dumps(chat_data, indent=2)
 
 def main():
-    st.title("PenTestLLM")
+    st.title("Krytos AI Security Analyst")
 
     # Document upload section
     with st.sidebar:

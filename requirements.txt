@@ -15,3 +15,6 @@ chromadb~=0.6.2
 streamlit-html-components
 pymilvus
 sentence-transformers
+
+# Carbon Design System dependencies
+streamlit-elements
