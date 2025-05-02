@@ -9,8 +9,9 @@ import asyncio
 import ollama
 from ollama import ChatResponse
 import yaml
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pymilvus import connections, Collection, utility
+import uuid
 
 # Import the functions and dictionary from tool_functions.py
 from tool_functions import available_functions
@@ -30,6 +31,21 @@ if 'milvus_connected' not in st.session_state:
 if 'function_calling_enabled' not in st.session_state:
     st.session_state.function_calling_enabled = False
 
+# Add session management
+if 'sessions' not in st.session_state:
+    st.session_state.sessions = {}
+if 'current_session_id' not in st.session_state:
+    # Create initial session
+    session_id = str(uuid.uuid4())
+    st.session_state.current_session_id = session_id
+    st.session_state.sessions[session_id] = {
+        'name': f"Dossier {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        'created_at': datetime.now().isoformat(),
+        'model_messages': {},
+        'document_collection': None,
+        'selected_model': None  # Add selected model tracking
+    }
+
 # Connect to Milvus
 def connect_to_milvus(host="localhost", port="19530"):
     try:
@@ -41,6 +57,33 @@ def connect_to_milvus(host="localhost", port="19530"):
         logging.error(f"Failed to connect to Milvus: {str(e)}")
         st.session_state.milvus_connected = False
         return False
+
+# Function to create a new session (dossier)
+def create_new_session():
+    session_id = str(uuid.uuid4())
+    st.session_state.sessions[session_id] = {
+        'name': f"Dossier {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        'created_at': datetime.now().isoformat(),
+        'model_messages': {},
+        'document_collection': None,
+        'selected_model': None  # Add selected model tracking
+    }
+    st.session_state.current_session_id = session_id
+    logging.info(f"Created new session: {session_id}")
+    return session_id
+
+# Function to switch to another session
+def switch_session(session_id: str):
+    if session_id in st.session_state.sessions:
+        st.session_state.current_session_id = session_id
+        logging.info(f"Switched to session: {session_id}")
+        return True
+    logging.error(f"Session not found: {session_id}")
+    return False
+
+# Get current session data
+def get_current_session() -> Dict:
+    return st.session_state.sessions.get(st.session_state.current_session_id, {})
 
 # Add this section for document upload and processing
 def handle_document_upload():
@@ -69,7 +112,8 @@ def handle_document_upload():
             # Store documents in Milvus
             collection_name = "document_" + datetime.now().strftime("%Y%m%d%H%M%S")
             collection = loader.setup_milvus(documents, collection_name)
-            st.session_state.document_collection = collection_name
+            current_session = get_current_session()
+            current_session['document_collection'] = collection_name
             st.success(f"Document processed and stored in Milvus collection: {collection_name}")
         except Exception as e:
             st.error(f"Error processing document: {str(e)}")
@@ -200,14 +244,19 @@ async def stream_chat_with_tools(model, messages):
                     logging.info(f'Function output: {tool_output}')
 
         if tool_output is not None:
-            messages.append(response.message)
+            messages.append({"role": response.message.role, "content": response.message.content})
             messages.append({'role': 'tool', 'content': str(tool_output), 'name': tool.function.name})
-            final_response = await client.chat(model, messages=[{"role": m["role"], "content": m["content"]} for m in messages])
-            complete_response = final_response.message.content
-            if tool_info:
-                complete_response += "\n\n💡 Tool Usage Details:" + "".join(tool_info)
-            return complete_response
-
+            
+            # Get final response from the model after seeing the tool output
+            final_response = await client.chat(
+                model, 
+                messages=[{"role": m["role"], "content": m["content"]} for m in messages]
+            )
+            
+            # Store just the model's response without tool details in the message history
+            return final_response.message.content
+        
+        # Return only the model's response without any additional tool info
         return response.message.content
     except Exception as e:
         logging.error(f"Error during streaming: {str(e)}")
@@ -242,6 +291,56 @@ def export_chat_history(model, messages):
 def main():
     st.title("Krytos AI Security Analyst")
 
+    # Apply custom CSS for styling chat messages - moved to top level to ensure it's always applied
+    st.markdown(
+        """
+        <style>
+        /* Global styling for chat messages */
+        .stChatMessage .stChatMessageContent {
+            border-radius: 10px;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+        /* User message styling */
+        .stChatMessage.user .stChatMessageContent {
+            background-color: #e6f7ff !important;
+            border: 1px solid #91d5ff !important;
+        }
+        /* Assistant message styling */
+        .stChatMessage.assistant .stChatMessageContent {
+            background-color: #fffbe6 !important;
+            border: 1px solid #ffe58f !important;
+        }
+        /* System message styling */
+        .stChatMessage.system .stChatMessageContent {
+            background-color: #f6ffed !important;
+            border: 1px solid #b7eb8f !important;
+        }
+        /* Tool message styling */
+        .stChatMessage.tool .stChatMessageContent {
+            background-color: #f9f0ff !important;
+            border: 1px solid #d3adf7 !important;
+        }
+        /* Error message styling */
+        .error-message {
+            color: #ff4d4f;
+            font-weight: bold;
+        }
+        /* Session selector styling */
+        .stSelectbox {
+            margin-top: 10px;
+            margin-bottom: 10px;
+        }
+        /* Success message styling */
+        .success-message {
+            color: #52c41a;
+            font-weight: bold;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
     # Document upload section
     with st.sidebar:
         st.header("Document Upload")
@@ -255,6 +354,35 @@ def main():
             help="Toggle to enable/disable function calling capabilities"
         )
 
+        # Add session management UI
+        st.header("Session Management")
+        if st.button("Start New Dossier"):
+            create_new_session()
+            st.success("New dossier started!")
+        
+        # Display sessions with a more descriptive label
+        session_options = {}
+        for session_id in st.session_state.sessions:
+            session_data = st.session_state.sessions[session_id]
+            created_at = datetime.fromisoformat(session_data['created_at']).strftime('%Y-%m-%d %H:%M')
+            message_count = sum(len(msgs) for msgs in session_data['model_messages'].values())
+            session_options[session_id] = f"{session_data['name']} ({message_count} messages)"
+        
+        # Create the selectbox with friendly names but keep track of the session IDs
+        session_ids = list(session_options.keys())
+        session_names = list(session_options.values())
+        current_index = session_ids.index(st.session_state.current_session_id)
+        selected_index = st.selectbox(
+            "Switch Dossier", 
+            range(len(session_ids)), 
+            format_func=lambda i: session_names[i],
+            index=current_index
+        )
+        
+        if session_ids[selected_index] != st.session_state.current_session_id:
+            switch_session(session_ids[selected_index])
+            st.rerun()  # Force a rerun to refresh the UI with the new session
+
     logging.info("App started")
 
     # Update the tools loading section to show status based on toggle
@@ -266,7 +394,19 @@ def main():
             st.sidebar.success(f"Loaded {len(tools)} tools")
 
     available_models = get_ollama_models()
-    model = st.sidebar.selectbox("Choose a model", available_models)
+    
+    current_session = get_current_session()
+    
+    # Get the default model index - use the session's saved model if available, otherwise use the first model
+    default_model_index = 0
+    if current_session['selected_model'] in available_models:
+        default_model_index = available_models.index(current_session['selected_model'])
+    
+    # Select model - use the session's saved model if available
+    model = st.sidebar.selectbox("Choose a model", available_models, index=default_model_index)
+    
+    # Save the selected model with the current session
+    current_session['selected_model'] = model
     
     # Add model health check
     if not asyncio.run(verify_model_health(model)):
@@ -275,8 +415,9 @@ def main():
     
     logging.info(f"Model selected and verified: {model}")
 
-    if model in st.session_state.model_messages and st.session_state.model_messages[model]:
-        chat_history = export_chat_history(model, st.session_state.model_messages[model])
+    current_session = get_current_session()
+    if model in current_session['model_messages'] and current_session['model_messages'][model]:
+        chat_history = export_chat_history(model, current_session['model_messages'][model])
         if chat_history:
             st.sidebar.download_button(
                 label="Download Chat History",
@@ -285,42 +426,41 @@ def main():
                 mime="application/json"
             )
 
-    if model not in st.session_state.model_messages:
-        st.session_state.model_messages[model] = []
+    if model not in current_session['model_messages']:
+        current_session['model_messages'][model] = []
 
-    current_messages = st.session_state.model_messages[model]
+    current_messages = current_session['model_messages'][model]
 
-    # Add custom CSS for advanced styling
-    st.markdown(
-        """
-        <style>
-        .st-chat-message {
-            border: 1px solid #ddd;
-            border-radius: 10px;
-            padding: 10px;
-            margin-bottom: 10px;
-            background-color: #f9f9f9;
-        }
-        .st-chat-message-user {
-            background-color: #e6f7ff;
-        }
-        .st-chat-message-assistant {
-            background-color: #fffbe6;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
+    # Display current dossier info
+    st.info(f"Current Dossier: {current_session['name']}")
 
-    # Update chat message rendering to use custom classes
-    for message in current_messages:
-        with st.chat_message(message["role"]):
-            if message["role"] == "user":
-                st.markdown(f'<div class="st-chat-message st-chat-message-user">{message["content"]}</div>', unsafe_allow_html=True)
-            elif message["role"] == "assistant":
-                st.markdown(f'<div class="st-chat-message st-chat-message-assistant">{message["content"]}</div>', unsafe_allow_html=True)
-            else:
-                st.markdown(f'<div class="st-chat-message">{message["content"]}</div>', unsafe_allow_html=True)
+    # Render chat messages - improved to work consistently across session switches
+    # Group consecutive assistant messages to prevent empty chat bubbles
+    i = 0
+    while i < len(current_messages):
+        message = current_messages[i]
+        role = message["role"]
+        content = message["content"]
+        
+        # Skip tool messages entirely
+        if role == "tool":
+            i += 1
+            continue
+            
+        # If this is an assistant message, check for any following assistant messages
+        # that might be generated after tool calls
+        if role == "assistant" and i + 2 < len(current_messages):
+            # Check if there's a tool message followed by another assistant message
+            if (current_messages[i+1]["role"] == "tool" and 
+                current_messages[i+2]["role"] == "assistant"):
+                # Skip this message as we'll display the later assistant message
+                i += 1
+                continue
+        
+        with st.chat_message(role):
+            st.markdown(content)
+        
+        i += 1
 
     # Wrap processing logic with st.spinner to show a loading indicator
     if prompt := st.chat_input("Your question"):
@@ -336,9 +476,9 @@ def main():
 
                 with st.spinner("Processing your input..."):
                     try:
-                        if st.session_state.document_collection:
+                        if current_session['document_collection']:
                             relevant_docs = query_documents(current_messages[-1]["content"],
-                                                         st.session_state.document_collection)
+                                                         current_session['document_collection'])
                             if relevant_docs and relevant_docs['documents'] and relevant_docs['documents'][0]:
                                 context = "\nContext from documents:\n" + "\n".join(relevant_docs['documents'][0])
                                 # Add context to the messages
