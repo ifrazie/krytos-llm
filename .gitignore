@@ -132,7 +132,7 @@ env.bak/
 venv.bak/
 
 # IDE and editor directories
-.vscode/
+.vscode
 
 # Spyder project settings
 .spyderproject
