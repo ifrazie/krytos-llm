@@ -217,7 +217,7 @@ def get_info(domain: str) -> dict:
         dns_records = {}
         
         # Get DNS records
-        for record_type in ['A', 'MX', 'NS', 'TXT']:
+        for record_type in ['A', 'MX', 'NS', 'TXT', 'AAAA', 'SOA']:
             try:
                 answers = dns.resolver.resolve(domain, record_type)
                 dns_records[record_type] = [str(rdata) for rdata in answers]
@@ -235,6 +235,88 @@ def get_info(domain: str) -> dict:
         except:
             whois_data = {"error": "WHOIS lookup failed"}
         
+        # Check for SPF, DKIM, DMARC records
+        email_security = {
+            "spf_found": False,
+            "dmarc_found": False,
+            "has_mx": len(dns_records.get('MX', [])) > 0
+        }
+        
+        # Check TXT records for SPF
+        for txt in dns_records.get('TXT', []):
+            if 'v=spf1' in txt:
+                email_security["spf_found"] = True
+                break
+        
+        # Check for DMARC record
+        try:
+            dmarc_answers = dns.resolver.resolve('_dmarc.' + domain, 'TXT')
+            for rdata in dmarc_answers:
+                if 'v=DMARC1' in str(rdata):
+                    email_security["dmarc_found"] = True
+                    break
+        except:
+            pass
+            
+        # Calculate domain age if creation date is available
+        domain_age_days = None
+        if whois_data.get("creation_date") and "error" not in whois_data:
+            try:
+                creation_date = whois_data["creation_date"]
+                if isinstance(creation_date, str):
+                    # Try to parse the date string
+                    from dateutil import parser
+                    creation_date = parser.parse(creation_date)
+                
+                if creation_date:
+                    domain_age_days = (datetime.now() - creation_date).days if not isinstance(creation_date, list) else None
+            except:
+                domain_age_days = None
+                
+        # Calculate days until expiration if available
+        expiration_days = None
+        if whois_data.get("expiration_date") and "error" not in whois_data:
+            try:
+                expiration_date = whois_data["expiration_date"]
+                if isinstance(expiration_date, str):
+                    # Try to parse the date string
+                    from dateutil import parser
+                    expiration_date = parser.parse(expiration_date)
+                
+                if expiration_date:
+                    expiration_days = (expiration_date - datetime.now()).days if not isinstance(expiration_date, list) else None
+            except:
+                expiration_days = None
+        
+        # Generate recommendations based on findings
+        recommendations = []
+        
+        # Email security recommendations
+        if email_security["has_mx"] and not email_security["spf_found"]:
+            recommendations.append("Implement SPF records to protect against email spoofing")
+        if email_security["has_mx"] and not email_security["dmarc_found"]:
+            recommendations.append("Set up DMARC policy to enhance email security and prevent domain spoofing")
+        
+        # Domain registration recommendations
+        if expiration_days is not None and expiration_days < 30:
+            recommendations.append(f"Domain expiration in {expiration_days} days - renew soon to prevent domain loss")
+        
+        # DNS recommendations
+        if not dns_records.get('AAAA', []):
+            recommendations.append("Consider adding IPv6 (AAAA) records for future-proofing your infrastructure")
+        
+        # New domain warning
+        if domain_age_days is not None and domain_age_days < 30:
+            recommendations.append(f"Domain is only {domain_age_days} days old - recently registered domains can be suspicious")
+            
+        # General security recommendations
+        if not any('v=DKIM1' in txt for txt in dns_records.get('TXT', [])):
+            recommendations.append("Implement DKIM email signing to improve deliverability and security")
+        
+        # If no issues found
+        if not recommendations:
+            recommendations.append("No immediate issues detected with domain configuration")
+        
         return {
             "timestamp": timestamp,
             "status": "completed",
@@ -242,6 +324,10 @@ def get_info(domain: str) -> dict:
             "ip_address": ip,
             "dns_records": dns_records,
             "whois_info": whois_data,
+            "email_security": email_security,
+            "domain_age_days": domain_age_days,
+            "days_until_expiration": expiration_days,
+            "recommendations": recommendations,
             "lookup_duration_ms": 200
         }
     except Exception as e:
