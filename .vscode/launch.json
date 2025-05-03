@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
       {
-        "name": "Start PenTestLLM",
+        "name": "Start KrytosAI",
         "type": "debugpy",
         "request": "launch",
         "module": "streamlit",

@@ -114,28 +114,82 @@ def scan_network(ip_address: str) -> dict:
         nm = nmap.PortScanner()
         nm.scan(ip_address, '1-1024', arguments='-sV --version-intensity 5')
         
-        results = {
-            "timestamp": timestamp,
-            "status": "completed",
-            "target": ip_address,
-            "scan_info": {
-                "total_ports_scanned": 1024,
-                "scan_duration_ms": nm.scanstats()['elapsed'],
-                "ports": []
-            }
-        }
+        # Initialize open ports list
+        open_ports = []
+        services = {}
+        
+        # Group services by their risk level
+        high_risk_services = []
+        medium_risk_services = []
+        low_risk_services = []
         
         if ip_address in nm.all_hosts():
             for proto in nm[ip_address].all_protocols():
-                for port in nm[ip_address][proto].keys():
+                for port in sorted(nm[ip_address][proto].keys()):
                     port_info = nm[ip_address][proto][port]
-                    results["scan_info"]["ports"].append({
-                        "port": port,
-                        "state": port_info["state"],
-                        "service": port_info.get("name", "unknown"),
-                        "version": port_info.get("version", "unknown"),
-                        "risk_level": "High" if port in [21, 23, 445, 3389] else "Low"
-                    })
+                    if port_info["state"] == "open":
+                        open_ports.append(port)
+                        service_name = port_info.get("name", "unknown")
+                        service_version = port_info.get("version", "unknown")
+                        services[port] = {
+                            "service": service_name,
+                            "version": service_version
+                        }
+                        
+                        # Categorize services by risk
+                        port_entry = f"Port {port} ({service_name} {service_version})"
+                        if port in [21, 23, 25, 445, 3389]:  # FTP, Telnet, SMTP, SMB, RDP
+                            high_risk_services.append(port_entry)
+                        elif port in [22, 53, 8080, 8443, 1433, 3306]:  # SSH, DNS, Web, SQL
+                            medium_risk_services.append(port_entry)
+                        else:
+                            low_risk_services.append(port_entry)
+        
+        # Assess overall security posture
+        if high_risk_services:
+            risk_level = "High"
+            risk_summary = "Critical services exposed"
+        elif medium_risk_services:
+            risk_level = "Medium"
+            risk_summary = "Some potentially sensitive services exposed"
+        elif low_risk_services:
+            risk_level = "Low"
+            risk_summary = "Only low-risk services detected"
+        else:
+            risk_level = "Minimal"
+            risk_summary = "No open services detected in scan"
+            
+        # Generate recommendations based on findings
+        recommendations = []
+        if 21 in open_ports:
+            recommendations.append("Consider disabling FTP in favor of SFTP")
+        if 23 in open_ports:
+            recommendations.append("Telnet is insecure - replace with SSH immediately")
+        if 80 in open_ports and 443 not in open_ports:
+            recommendations.append("Implement HTTPS for secure web communications")
+        if not open_ports:
+            recommendations.append("Host appears well-secured with limited attack surface")
+            
+        results = {
+            "timestamp": timestamp,
+            "status": "completed",
+            "ip_address": ip_address,
+            "open_ports": open_ports,
+            "services": services,
+            "security_assessment": {
+                "risk_level": risk_level,
+                "risk_summary": risk_summary,
+                "high_risk_services": high_risk_services,
+                "medium_risk_services": medium_risk_services,
+                "low_risk_services": low_risk_services
+            },
+            "recommendations": recommendations,
+            "scan_details": {
+                "total_ports_scanned": 1024,
+                "scan_time": nm.scanstats()['elapsed'],
+                "scan_type": "TCP SYN + Service Detection"
+            }
+        }
         
         return results
     except Exception as e:
@@ -143,7 +197,7 @@ def scan_network(ip_address: str) -> dict:
             "timestamp": timestamp,
             "status": "error",
             "error": str(e),
-            "target": ip_address
+            "ip_address": ip_address
         }
 
 # Information Gathering

@@ -9,7 +9,7 @@ import asyncio
 import ollama
 from ollama import ChatResponse
 import yaml
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from pymilvus import connections, Collection, utility
 import uuid
 
