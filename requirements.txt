@@ -9,12 +9,31 @@ langchain-text-splitters
 requests~=2.32.3
 langchain-anthropic~=0.3.9
 langgraph~=0.3.5
-chromadb~=0.6.2
 
-# Added dependency for custom CSS rendering (if needed)
-streamlit-html-components
+# Specific versions to resolve dependency conflicts
+protobuf>=4.25.7,<5.0.0
+httpx>=0.27.2,<0.28.0
+opentelemetry-api>=1.27.0,<1.28.0
+opentelemetry-sdk>=1.27.0,<1.28.0
+opentelemetry-instrumentation>=0.48b0,<0.49
+opentelemetry-semantic-conventions>=0.48b0,<0.49
+opentelemetry-proto>=1.27.0,<1.28.0
+opentelemetry-exporter-otlp-proto-common>=1.27.0,<1.28.0
+ml-dtypes>=0.4.0,<0.5.0
+tensorboard>=2.18.0,<2.19.0
+
 pymilvus
 sentence-transformers
 
 # Carbon Design System dependencies
 streamlit-elements
+
+# Testing dependencies
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-asyncio>=0.21.1
+pytest-mock>=3.11.1
+pytest-xdist>=3.3.1
+selenium>=4.15.0
+webdriver-manager>=4.0.1
+freezegun>=1.2.2

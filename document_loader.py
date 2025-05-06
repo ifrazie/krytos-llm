@@ -2,7 +2,7 @@ import os
 import json
 import logging
 import numpy as np
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -16,23 +16,49 @@ from pymilvus import (
 )
 
 class DocumentLoader:
-    def __init__(self):
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2"
-        )
+    def __init__(self, testing_mode: bool = False, milvus_host: str = 'localhost', milvus_port: str = '19530'):
+        """Initialize the DocumentLoader
+        
+        Args:
+            testing_mode: If True, won't try to load real models or make real connections
+            milvus_host: Host for Milvus connection
+            milvus_port: Port for Milvus connection
+        """
+        self.testing_mode = testing_mode
+        self.milvus_host = milvus_host
+        self.milvus_port = milvus_port
+        
+        if not testing_mode:
+            self.embeddings = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2"
+            )
+            self.connect_to_milvus()
+        else:
+            # Create a stub for testing that won't try to load a real model
+            self.embeddings = None
+            logging.info("Initialized in testing mode - no real connections made")
+            
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=100
         )
         logging.info("DocumentLoader initialized")
-        self.connect_to_milvus()
 
     def connect_to_milvus(self):
-        connections.connect(host='localhost', port='19530')
+        """Connect to Milvus vector database"""
+        connections.connect(host=self.milvus_host, port=self.milvus_port)
 
     def load_single_pdf(self, file_path: str):
         """Load a single PDF and split it into chunks"""
         try:
+            if self.testing_mode:
+                # Return mock data for testing
+                mock_content = "This is mock PDF content for testing."
+                mock_metadata = {"source": file_path, "page": 1}
+                mock_document = type('MockDocument', (), {'page_content': mock_content, 'metadata': mock_metadata})
+                mock_chunks = [mock_document for _ in range(3)]
+                return mock_chunks
+                
             loader = PyPDFLoader(file_path)
             documents = loader.load()
             chunks = self.text_splitter.split_documents(documents)
@@ -45,6 +71,9 @@ class DocumentLoader:
     def get_embeddings(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for a list of texts"""
         try:
+            if self.testing_mode:
+                # Return mock embeddings for testing
+                return [[0.1, 0.2, 0.3] for _ in texts]
             return self.embeddings.embed_documents(texts)
         except Exception as e:
             logging.error(f"Error generating embeddings: {str(e)}")
@@ -53,6 +82,10 @@ class DocumentLoader:
     def setup_milvus(self, documents: List, collection_name: str) -> str:
         """Set up a Milvus collection and insert document embeddings"""
         try:
+            if self.testing_mode:
+                # Skip actual Milvus operations in testing mode
+                return collection_name
+                
             # Extract text from documents
             texts = [doc.page_content for doc in documents]
             metadatas = [doc.metadata for doc in documents]
@@ -109,6 +142,20 @@ class DocumentLoader:
         raise NotImplementedError("Chroma DB support has been replaced by Milvus")
         
     def query_documents(self, query: str, collection_name: str = "documents", top_k: int = 3):
+        """Query documents from the vector database
+        
+        Args:
+            query: The query text
+            collection_name: The name of the collection to search
+            top_k: Number of results to return
+            
+        Returns:
+            List of document contents
+        """
+        if self.testing_mode:
+            # Return mock results for testing
+            return ["Test document 1", "Test document 2"]
+            
         collection = Collection(collection_name)
         collection.load()
         
