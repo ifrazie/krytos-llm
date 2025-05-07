@@ -1,13 +1,11 @@
 import os
 import json
 import logging
-import numpy as np
-from typing import List, Dict, Any, Optional
+from typing import List
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from pymilvus import (
-    utility,
     MilvusClient,
     DataType,
     FieldSchema
