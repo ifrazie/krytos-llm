@@ -26,6 +26,8 @@ if 'document_collection' not in st.session_state:
     st.session_state.document_collection = None
 if 'milvus_connected' not in st.session_state:
     st.session_state.milvus_connected = False
+if 'milvus_lite_db_file' not in st.session_state:
+    st.session_state.milvus_lite_db_file = "milvus_app.db"  # Default DB file name
 
 # Add this after other session state initializations
 if 'function_calling_enabled' not in st.session_state:
@@ -47,11 +49,21 @@ if 'current_session_id' not in st.session_state:
     }
 
 # Connect to Milvus
-def connect_to_milvus(host="localhost", port="19530"):
+def connect_to_milvus(host="localhost", port="19530", use_lite=True, db_file="milvus_app.db"):
     try:
-        connections.connect("default", host=host, port=port)
+        if use_lite:
+            uri_to_use = db_file
+            # If db_file is a simple name (no path separators) and not absolute, prepend "./"
+            if not os.path.isabs(db_file) and not db_file.startswith(("./", ".\\")) and "/" not in db_file and "\\" not in db_file:
+                uri_to_use = "./" + db_file
+            
+            connections.connect(alias="default", uri=uri_to_use)
+            st.session_state.milvus_lite_db_file = db_file  # Store the original name for UI consistency
+            logging.info(f"Successfully connected to Milvus Lite using file: {uri_to_use}")
+        else:
+            connections.connect("default", host=host, port=port)
+            logging.info(f"Successfully connected to Milvus at {host}:{port}")
         st.session_state.milvus_connected = True
-        logging.info(f"Successfully connected to Milvus at {host}:{port}")
         return True
     except Exception as e:
         logging.error(f"Failed to connect to Milvus: {str(e)}")
@@ -88,16 +100,30 @@ def get_current_session() -> Dict:
 # Add this section for document upload and processing
 def handle_document_upload():
     uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
-    
+
     # Add Milvus connection settings
     with st.expander("Milvus Connection Settings"):
-        milvus_host = st.text_input("Milvus Host", "localhost")
-        milvus_port = st.text_input("Milvus Port", "19530")
+        use_milvus_lite = st.checkbox("Use Milvus Lite", value=True)
+        milvus_db_file = st.text_input("Milvus Lite DB File", value=st.session_state.get("milvus_lite_db_file", "milvus_app.db"))
+        
+        if not use_milvus_lite:
+            milvus_host = st.text_input("Milvus Host", "localhost")
+            milvus_port = st.text_input("Milvus Port", "19530")
+        else:
+            milvus_host = None
+            milvus_port = None
+
         if st.button("Connect to Milvus"):
-            if connect_to_milvus(milvus_host, milvus_port):
-                st.success("Connected to Milvus server!")
+            if use_milvus_lite:
+                if connect_to_milvus(use_lite=True, db_file=milvus_db_file):
+                    st.success(f"Connected to Milvus Lite using file: {milvus_db_file}!")
+                else:
+                    st.error("Failed to connect to Milvus Lite")
             else:
-                st.error("Failed to connect to Milvus server")
+                if connect_to_milvus(host=milvus_host, port=milvus_port, use_lite=False):
+                    st.success("Connected to Milvus server!")
+                else:
+                    st.error("Failed to connect to Milvus server")
     
     if uploaded_file is not None and st.session_state.milvus_connected:
         # Save the uploaded file temporarily

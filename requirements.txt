@@ -1,6 +1,9 @@
 streamlit
 ollama
 pyyaml
+pymilvus>=2.4.2
+milvus-lite
+sentence-transformers
 setuptools~=75.9.1
 langchain-core~=0.3.43
 langchain-community
@@ -21,9 +24,6 @@ opentelemetry-proto>=1.27.0,<1.28.0
 opentelemetry-exporter-otlp-proto-common>=1.27.0,<1.28.0
 ml-dtypes>=0.4.0,<0.5.0
 tensorboard>=2.18.0,<2.19.0
-
-pymilvus
-sentence-transformers
 
 # Carbon Design System dependencies
 streamlit-elements
