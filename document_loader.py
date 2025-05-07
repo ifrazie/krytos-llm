@@ -8,7 +8,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from pymilvus import (
     utility,
-    MilvusClient
+    MilvusClient,
+    DataType,
+    FieldSchema
 )
 
 class DocumentLoader:
@@ -126,26 +128,36 @@ class DocumentLoader:
                 logging.info(f"Collection {collection_name} already exists. Dropping it.")
                 self.client.drop_collection(collection_name)
             
+            # Define schema for other fields
+            other_fields = [
+                FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535),
+                FieldSchema(name="metadata", dtype=DataType.JSON)
+            ]
+
             self.client.create_collection(
                 collection_name=collection_name,
                 dimension=dim,
+                primary_field_name="id",        # Explicitly name primary key
+                auto_id=True,                   # Enable auto ID generation
+                vector_field_name="embedding",  # Name of the vector field
+                other_fields_schema=other_fields, # Schema for other fields
                 metric_type="COSINE",
                 consistency_level="Strong",
             )
             logging.info(f"Collection {collection_name} created with dimension {dim}.")
 
-            data_to_insert = []
-            for i, text_content in enumerate(texts):
-                data_to_insert.append({
-                    "vector": embeddings[i],
-                    "text": text_content,
-                    "metadata": json.dumps(metadatas[i])
-                })
-
-            logging.info(f"Inserting {len(data_to_insert)} documents into {collection_name}.")
-            res = self.client.insert(collection_name=collection_name, data=data_to_insert)
-            logging.info(f"Insertion result: {res}")
-
+            # Convert to row-oriented format instead of column-oriented
+            insert_data_rows = []
+            for i in range(len(texts)):
+                row = {
+                    "content": texts[i],
+                    "metadata": json.dumps(metadatas[i]),  # Ensure metadata is JSON serialized
+                    "embedding": embeddings[i]
+                }
+                insert_data_rows.append(row)
+            
+            self.client.insert(collection_name=collection_name, data=insert_data_rows)
+            self.client.flush(collection_name=collection_name) # Ensure data is flushed
             logging.info(f"Successfully set up Milvus collection '{collection_name}' with {len(texts)} documents.")
             return collection_name
             
@@ -185,13 +197,13 @@ class DocumentLoader:
                 data=[query_embedding],
                 limit=top_k,
                 search_params=search_params,
-                output_fields=["text", "metadata"]
+                output_fields=["content", "metadata"] # Corrected output fields
             )
             
             documents_content = []
             if results and results[0]:
                 for hit in results[0]:
-                    doc_text = hit.get('entity', {}).get('text', '')
+                    doc_text = hit.get('entity', {}).get('content', '') # Corrected field name
                     documents_content.append(doc_text)
             
             logging.info(f"Query '{query}' on {collection_name} returned {len(documents_content)} documents.")

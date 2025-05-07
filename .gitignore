@@ -167,4 +167,6 @@ cython_debug/
 
 documentation/
 code-docs/
-
+krytos/
+milvus_app.db
+.milvus_app.db.lock
