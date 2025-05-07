@@ -1,6 +1,4 @@
 import pytest
-import asyncio
-import json
 from unittest.mock import patch, MagicMock, AsyncMock
 
 # Import the functions to test

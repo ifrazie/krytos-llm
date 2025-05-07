@@ -1,6 +1,5 @@
 import pytest
-from unittest.mock import patch, MagicMock
-import streamlit as st
+from unittest.mock import patch
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By

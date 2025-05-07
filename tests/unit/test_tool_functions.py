@@ -1,5 +1,3 @@
-import pytest
-import json
 from unittest.mock import patch, MagicMock
 from datetime import datetime
 

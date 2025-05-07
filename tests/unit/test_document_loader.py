@@ -1,8 +1,4 @@
-import pytest
-import json
-import numpy as np
 from unittest.mock import patch, MagicMock, mock_open
-
 from document_loader import DocumentLoader
 
 class TestDocumentLoader:
