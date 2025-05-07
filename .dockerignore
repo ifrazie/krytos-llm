@@ -1,0 +1,63 @@
+# 1. Version control
+.git/
+.gitignore
+
+# 2. Python cache and test artifacts
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.coverage
+
+# 3. IDE/editor settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 4. Build and distribution outputs
+dist/
+build/
+out/
+
+# 5. Test directories and files
+tests/
+test/
+
+# 6. Documentation and markdown files
+documentation/
+docs/
+*.md
+README*
+
+# 7. Images and media (if not needed in build)
+images/
+
+# 8. Environment and secrets
+.env*
+*.env
+*.pem
+*.key
+*.crt
+config.local.*
+*.local.yml
+.local/
+
+# 9. Temporary and debug files
+tmp/
+temp/
+*.tmp
+debug/
+*.log
+
+# 10. Other VCS
+.svn/
+.hg/
+
+# 11. Docker and compose files (if not needed in build)
+Dockerfile*
+docker-compose*
+
+# 12. Project-specific cache or local folders
+
+# End of .dockerignore
