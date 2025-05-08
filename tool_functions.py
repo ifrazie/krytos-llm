@@ -202,7 +202,7 @@ def scan_network(ip_address: str) -> dict:
 
 # Information Gathering
 def get_info(domain: str) -> dict:
-    """Get detailed information about a domain
+    """Get detailed information about a domain using DNS and WHOIS lookups.
     
     Args:
         domain (str): The domain to gather information about.

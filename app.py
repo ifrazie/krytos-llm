@@ -45,7 +45,7 @@ if 'current_session_id' not in st.session_state:
         'created_at': datetime.now().isoformat(),
         'model_messages': {},
         'document_collection': None,
-        'selected_model': None  # Add selected model tracking
+        'selected_model': "digiguru/krytos:latest"  # Set default model to digiguru/krytos:latest
     }
 
 # Connect to Milvus
@@ -78,7 +78,7 @@ def create_new_session():
         'created_at': datetime.now().isoformat(),
         'model_messages': {},
         'document_collection': None,
-        'selected_model': None  # Add selected model tracking
+        'selected_model': "digiguru/krytos:latest"  # Set default model to digiguru/krytos:latest
     }
     st.session_state.current_session_id = session_id
     logging.info(f"Created new session: {session_id}")
@@ -315,7 +315,7 @@ def export_chat_history(model, messages):
     return json.dumps(chat_data, indent=2)
 
 def main():
-    st.title("Krytos AI Security Analyst")
+    st.title("Krytos AI")
 
     # Apply custom CSS for styling chat messages - moved to top level to ensure it's always applied
     st.markdown(
