@@ -3,6 +3,73 @@ import nmap
 from datetime import datetime
 import dns.resolver
 import whois
+import logging
+
+# Define specific exceptions for better error handling
+class ToolExecutionError(Exception):
+    """Base class for errors in tool execution"""
+    pass
+
+class NetworkToolError(ToolExecutionError):
+    """Error in network-related tools like port scanning"""
+    pass
+
+class DNSToolError(ToolExecutionError):
+    """Error in DNS lookup operations"""
+    pass
+
+class WebToolError(ToolExecutionError):
+    """Error in web-related operations like SQL injection testing"""
+    pass
+
+# Function to create standardized error responses
+def create_error_response(tool_name: str, error: Exception, target: str) -> dict:
+    """
+    Create a standardized error response with helpful information
+    
+    Args:
+        tool_name: The name of the tool that encountered an error
+        error: The exception that was raised
+        target: The domain or IP address being analyzed
+        
+    Returns:
+        dict: A formatted error response with user-friendly information
+    """
+    timestamp = datetime.now().isoformat()
+    error_str = str(error)
+    error_type = error.__class__.__name__
+    
+    # Create user-friendly error message based on error type
+    user_message = "An error occurred during execution."
+    suggestion = "Please try again later."
+    
+    if isinstance(error, socket.gaierror):
+        user_message = f"Could not resolve host: {target}"
+        suggestion = "Check that the domain name is correct and that you have a working internet connection."
+    elif isinstance(error, socket.timeout):
+        user_message = f"Connection to {target} timed out"
+        suggestion = "The target may be offline or blocking connections. Try again later."
+    elif "permission" in error_str.lower():
+        user_message = "Permission denied while executing the tool"
+        suggestion = "This tool may require administrator privileges to run properly."
+    elif "not found" in error_str.lower():
+        user_message = f"Resource not found: {target}"
+        suggestion = "Verify the target exists and is accessible."
+    
+    return {
+        "timestamp": timestamp,
+        "status": "error",
+        "tool": tool_name,
+        "target": target,
+        "error_type": error_type,
+        "error_details": error_str,
+        "user_message": user_message,
+        "suggestion": suggestion,
+        "debug_info": {
+            "python_error": error_str,
+            "error_type": error_type
+        }
+    }
 
 # Simulated Exploitation
 def sql_injection(url: str) -> dict:
@@ -17,6 +84,10 @@ def sql_injection(url: str) -> dict:
     timestamp = datetime.now().isoformat()
     
     try:
+        # Validate input URL format
+        if not url.startswith(('http://', 'https://')):
+            url = 'https://' + url
+            
         return {
             "timestamp": timestamp,
             "status": "completed",
@@ -40,12 +111,8 @@ def sql_injection(url: str) -> dict:
             ]
         }
     except Exception as e:
-        return {
-            "timestamp": timestamp,
-            "status": "error",
-            "error": str(e),
-            "target_url": url
-        }
+        logging.error(f"SQL injection test error for {url}: {str(e)}")
+        return create_error_response("sql_injection", e, url)
 
 # Vulnerability Scanning
 def check_vulnerability(domain: str) -> dict:
@@ -59,6 +126,10 @@ def check_vulnerability(domain: str) -> dict:
     timestamp = datetime.now().isoformat()
     
     try:
+        # Validate domain format
+        if not domain:
+            raise ValueError("Domain cannot be empty")
+            
         results = {
             "timestamp": timestamp,
             "domain": domain,
@@ -91,16 +162,12 @@ def check_vulnerability(domain: str) -> dict:
         }
         return results
     except Exception as e:
-        return {
-            "timestamp": timestamp,
-            "status": "error",
-            "error": str(e),
-            "domain": domain
-        }
+        logging.error(f"Vulnerability check error for {domain}: {str(e)}")
+        return create_error_response("check_vulnerability", e, domain)
 
 # Port Scanning
 def scan_network(ip_address: str) -> dict:
-    """Scan the network for open ports
+    """Scan an IP address for open ports and services.
     
     Args:
         ip_address (str): The IP address to scan for open ports.
@@ -111,8 +178,25 @@ def scan_network(ip_address: str) -> dict:
     timestamp = datetime.now().isoformat()
     
     try:
+        # Validate IP address format
+        try:
+            socket.inet_aton(ip_address)
+        except socket.error:
+            # If not a valid IP, try to resolve it as a hostname
+            try:
+                ip_address = socket.gethostbyname(ip_address)
+            except socket.gaierror:
+                raise ValueError(f"Invalid IP address or hostname: {ip_address}")
+                
         nm = nmap.PortScanner()
-        nm.scan(ip_address, '1-1024', arguments='-sV --version-intensity 5')
+        
+        try:
+            nm.scan(ip_address, '1-1024', arguments='-sV --version-intensity 5')
+        except nmap.PortScannerError as e:
+            if "root privileges" in str(e).lower() or "permission" in str(e).lower():
+                raise NetworkToolError("Insufficient permissions to run port scan. This scan requires administrator privileges.")
+            else:
+                raise
         
         # Initialize open ports list
         open_ports = []
@@ -193,12 +277,8 @@ def scan_network(ip_address: str) -> dict:
         
         return results
     except Exception as e:
-        return {
-            "timestamp": timestamp,
-            "status": "error",
-            "error": str(e),
-            "ip_address": ip_address
-        }
+        logging.error(f"Port scan error for {ip_address}: {str(e)}")
+        return create_error_response("scan_network", e, ip_address)
 
 # Information Gathering
 def get_info(domain: str) -> dict:
@@ -331,12 +411,8 @@ def get_info(domain: str) -> dict:
             "lookup_duration_ms": 200
         }
     except Exception as e:
-        return {
-            "timestamp": timestamp,
-            "status": "error",
-            "error": str(e),
-            "domain": domain
-        }
+        logging.error(f"Information gathering error for {domain}: {str(e)}")
+        return create_error_response("get_info", e, domain)
 
 # Dictionary mapping function names to their implementations
 available_functions = {

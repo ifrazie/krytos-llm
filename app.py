@@ -9,15 +9,118 @@ import asyncio
 import ollama
 from ollama import ChatResponse
 import yaml
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple, Optional
 from pymilvus import connections, Collection, utility
 import uuid
 
 # Import the functions and dictionary from tool_functions.py
 from tool_functions import available_functions
-from document_loader import DocumentLoader
+from document_loader import DocumentLoader, PDFProcessingError, MilvusConnectionError
+from async_tools import process_tool_calls, format_tool_info_for_display
 
 logging.basicConfig(level=logging.INFO)
+
+# Define error categories for better user feedback
+class ErrorCategory:
+    CONNECTION = "Connection Error"
+    MODEL = "Model Error"
+    DOCUMENT = "Document Processing Error"
+    TOOL = "Tool Execution Error"
+    MILVUS = "Database Error"
+    UNKNOWN = "Unknown Error"
+
+def format_user_friendly_error(error: Exception, category: str = ErrorCategory.UNKNOWN) -> Tuple[str, str, Optional[str]]:
+    """
+    Format an exception into a user-friendly error message with potential solution.
+    
+    Args:
+        error: The exception that occurred
+        category: Error category for better classification
+        
+    Returns:
+        Tuple containing (short_message, detailed_message, suggested_solution)
+    """
+    error_str = str(error)
+    
+    # Default values
+    short_message = f"{category}: An error occurred"
+    detailed_message = error_str
+    suggested_solution = None
+    
+    # Customize error messages based on category and specific error types
+    if category == ErrorCategory.CONNECTION:
+        if "Connection refused" in error_str or "Failed to connect" in error_str:
+            short_message = "Connection Failed"
+            detailed_message = "Unable to connect to the required service."
+            suggested_solution = "Please check that Ollama is running and accessible."
+        elif "timeout" in error_str.lower():
+            short_message = "Connection Timeout"
+            detailed_message = "The connection timed out while waiting for a response."
+            suggested_solution = "Check your network connection or try again later."
+            
+    elif category == ErrorCategory.MODEL:
+        if "not found" in error_str.lower():
+            short_message = "Model Not Available"
+            detailed_message = "The selected AI model could not be found."
+            suggested_solution = f"Try pulling the model using 'ollama pull [model_name]' in your terminal."
+        elif "memory" in error_str.lower() or "resources" in error_str.lower():
+            short_message = "Insufficient Resources"
+            detailed_message = "The model requires more resources than are currently available."
+            suggested_solution = "Try using a smaller model or closing other applications."
+            
+    elif category == ErrorCategory.DOCUMENT:
+        if "pdf" in error_str.lower():
+            short_message = "PDF Processing Failed"
+            detailed_message = "Unable to process the PDF document."
+            suggested_solution = "Ensure the PDF is not corrupted, password-protected, or in an unsupported format."
+        elif "embedding" in error_str.lower():
+            short_message = "Embedding Generation Failed"
+            detailed_message = "Failed to generate embeddings for the document."
+            suggested_solution = "Check that your embedding model is properly configured."
+            
+    elif category == ErrorCategory.MILVUS:
+        if "collection" in error_str.lower():
+            short_message = "Collection Error"
+            detailed_message = "Problem accessing or creating the document collection."
+            suggested_solution = "Try reconnecting to Milvus or creating a new collection."
+        elif "search" in error_str.lower():
+            short_message = "Search Failed"
+            detailed_message = "The search operation in the vector database failed."
+            suggested_solution = "Check your query or try reconnecting to the database."
+            
+    elif category == ErrorCategory.TOOL:
+        if "permission" in error_str.lower():
+            short_message = "Permission Denied"
+            detailed_message = "The tool function lacks the necessary permissions."
+            suggested_solution = "Check that the application has the required system permissions."
+        elif "timeout" in error_str.lower():
+            short_message = "Tool Execution Timeout"
+            detailed_message = "The tool function took too long to execute."
+            suggested_solution = "Try again with simplified parameters or check your network connection."
+    
+    return short_message, detailed_message, suggested_solution
+
+def display_error(error: Exception, category: str = ErrorCategory.UNKNOWN):
+    """
+    Display a user-friendly error message in the Streamlit UI.
+    
+    Args:
+        error: The exception that occurred
+        category: Error category for better classification
+    """
+    short_message, detailed_message, suggested_solution = format_user_friendly_error(error, category)
+    
+    # Log the error for debugging
+    logging.error(f"{category}: {detailed_message}")
+    
+    # Display error in UI with different levels of detail
+    error_container = st.error(short_message)
+    with error_container:
+        with st.expander("Details", expanded=False):
+            st.write(detailed_message)
+            if suggested_solution:
+                st.write("**Suggested Solution:**")
+                st.write(suggested_solution)
 
 # Initialize session state
 if 'model_messages' not in st.session_state:
@@ -68,6 +171,7 @@ def connect_to_milvus(host="localhost", port="19530", use_lite=True, db_file="mi
     except Exception as e:
         logging.error(f"Failed to connect to Milvus: {str(e)}")
         st.session_state.milvus_connected = False
+        display_error(e, ErrorCategory.CONNECTION)
         return False
 
 # Function to create a new session (dossier)
@@ -142,7 +246,7 @@ def handle_document_upload():
             current_session['document_collection'] = collection_name
             st.success(f"Document processed and stored in Milvus collection: {collection_name}")
         except Exception as e:
-            st.error(f"Error processing document: {str(e)}")
+            display_error(e, ErrorCategory.DOCUMENT)
         finally:
             # Clean up temporary file
             if os.path.exists("temp.pdf"):
@@ -187,6 +291,7 @@ def query_documents(query: str, collection_name: str):
         return {"documents": [documents] if documents else []}
     except Exception as e:
         logging.error(f"Error querying Milvus: {str(e)}")
+        display_error(e, ErrorCategory.MILVUS)
         return {"documents": []}
 
 def load_tool_configs() -> List[Dict[str, Any]]:
@@ -200,6 +305,7 @@ def load_tool_configs() -> List[Dict[str, Any]]:
         } for tool in config['tools']]
     except Exception as e:
         logging.error(f"Error loading tool configs: {str(e)}")
+        display_error(e, ErrorCategory.TOOL)
         return []
 
 async def verify_model_health(model_name: str) -> bool:
@@ -214,6 +320,7 @@ async def verify_model_health(model_name: str) -> bool:
         return True
     except Exception as e:
         logging.error(f"Model health check failed for {model_name}: {str(e)}")
+        display_error(e, ErrorCategory.MODEL)
         return False
 
 def get_ollama_models():
@@ -233,11 +340,13 @@ def get_ollama_models():
         return models
     except Exception as e:
         logging.error(f"Error getting Ollama models: {str(e)}")
+        display_error(e, ErrorCategory.MODEL)
         return ["llama3.1:latest"]  # Fallback to a common model
 
 async def stream_chat_with_tools(model, messages):
     tool = None
     final_response = None
+    tool_info = None
     try:
         client = ollama.AsyncClient()
         tools = load_tool_configs() if st.session_state.function_calling_enabled else None
@@ -248,44 +357,16 @@ async def stream_chat_with_tools(model, messages):
             tools=tools
         )
 
-        tool_output = None
-        tool_info = []
-
+        # If function calling is enabled and we have tool calls, process them
         if st.session_state.function_calling_enabled and response.message.tool_calls:
-            for tool in response.message.tool_calls:
-                if function_to_call := available_functions.get(tool.function.name):
-                    # Create tool call info string
-                    tool_call_info = (
-                        f"\n🔧 Tool Called: {tool.function.name}\n"
-                        f"📝 Parameters: {json.dumps(tool.function.arguments, indent=2)}\n"
-                    )
-
-                    logging.info(f'Calling function: {tool.function.name}')
-                    tool_output = function_to_call(**tool.function.arguments)
-
-                    # Add result to tool info
-                    tool_call_info += f"📊 Result: {tool_output}\n"
-                    tool_info.append(tool_call_info)
-
-                    logging.info(f'Function output: {tool_output}')
-
-        if tool_output is not None:
-            messages.append({"role": response.message.role, "content": response.message.content})
-            messages.append({'role': 'tool', 'content': str(tool_output), 'name': tool.function.name})
-            
-            # Get final response from the model after seeing the tool output
-            final_response = await client.chat(
-                model, 
-                messages=[{"role": m["role"], "content": m["content"]} for m in messages]
-            )
-            
-            # Store just the model's response without tool details in the message history
-            return final_response.message.content
+            response_content, tool_info = await process_tool_calls(client, model, messages, response)
+            return response_content, tool_info
         
-        # Return only the model's response without any additional tool info
-        return response.message.content
+        # No tool calls, just return the response
+        return response.message.content, None
     except Exception as e:
         logging.error(f"Error during streaming: {str(e)}")
+        display_error(e, ErrorCategory.TOOL if "tool" in str(e).lower() else ErrorCategory.MODEL)
         raise e
 
 def serialize_message(message):
@@ -502,35 +583,70 @@ def main():
 
                 with st.spinner("Processing your input..."):
                     try:
+                        # Get relevant documents if we have a collection
                         if current_session['document_collection']:
-                            relevant_docs = query_documents(current_messages[-1]["content"],
-                                                         current_session['document_collection'])
-                            if relevant_docs and relevant_docs['documents'] and relevant_docs['documents'][0]:
-                                context = "\nContext from documents:\n" + "\n".join(relevant_docs['documents'][0])
-                                # Add context to the messages
-                                current_messages.append({
-                                    "role": "system",
-                                    "content": f"Here's relevant context for the query: {context}"
-                                })
-                                logging.info(f"Added context from Milvus: {len(relevant_docs['documents'][0])} documents")
-                        response_message = asyncio.run(stream_chat_with_tools(model, current_messages))
+                            try:
+                                relevant_docs = query_documents(current_messages[-1]["content"],
+                                                           current_session['document_collection'])
+                                if relevant_docs and relevant_docs['documents'] and relevant_docs['documents'][0]:
+                                    context = "\nContext from documents:\n" + "\n".join(relevant_docs['documents'][0])
+                                    # Add context to the messages
+                                    current_messages.append({
+                                        "role": "system",
+                                        "content": f"Here's relevant context for the query: {context}"
+                                    })
+                                    logging.info(f"Added context from Milvus: {len(relevant_docs['documents'][0])} documents")
+                            except Exception as e:
+                                logging.error(f"Error retrieving document context: {str(e)}")
+                                display_error(e, ErrorCategory.DOCUMENT)
+                                # Continue without context if there's an error
+                                
+                        # Process the chat with potential tool calls
+                        response_message, tool_info = asyncio.run(stream_chat_with_tools(model, current_messages))
+                        
+                        # Calculate duration for display
                         duration = time.time() - start_time
-                        response_message_with_duration = f"{response_message}\n\nDuration: {duration:.2f} seconds"
+                        
+                        # Format the full response to display to the user
+                        display_message = response_message
+                        
+                        # Add tool info if available
+                        tool_display = format_tool_info_for_display(tool_info) if tool_info else ""
+                        
+                        # Add the complete response to the message history without tool details
                         current_messages.append({
                             "role": "assistant",
-                            "content": response_message_with_duration
+                            "content": response_message
                         })
-                        st.markdown(response_message)
+                        
+                        # Display the response and duration
+                        st.markdown(display_message)
+                        if tool_info:
+                            with st.expander("Tool Usage Details", expanded=False):
+                                for info in tool_info:
+                                    st.markdown(info)
                         st.write(f"Duration: {duration:.2f} seconds")
-                        logging.info(f"Response: {response_message}, Duration: {duration:.2f} s")
+                        logging.info(f"Response generated, Duration: {duration:.2f} s")
 
                     except Exception as e:
+                        error_message = str(e)
+                        logging.error(f"Error: {error_message}")
+                        
+                        # Add a simple error message to the chat history
                         current_messages.append({
                             "role": "assistant",
-                            "content": str(e)
+                            "content": "I encountered an error processing your request."
                         })
-                        st.error("An error occurred while generating the response.")
-                        logging.error(f"Error: {str(e)}")
+                        
+                        # Display a user-friendly error to the user
+                        if "model" in error_message.lower():
+                            display_error(e, ErrorCategory.MODEL)
+                        elif "connection" in error_message.lower() or "timeout" in error_message.lower():
+                            display_error(e, ErrorCategory.CONNECTION)
+                        elif "tool" in error_message.lower():
+                            display_error(e, ErrorCategory.TOOL)
+                        else:
+                            display_error(e, ErrorCategory.UNKNOWN)
 
 if __name__ == "__main__":
     main()
