@@ -2,7 +2,6 @@ streamlit
 ollama
 pyyaml
 pymilvus>=2.4.2
-milvus-lite
 sentence-transformers
 setuptools~=75.9.1
 langchain-core~=0.3.43
@@ -41,3 +40,5 @@ pytest-xdist>=3.3.1
 selenium>=4.15.0
 webdriver-manager>=4.0.1
 freezegun>=1.2.2
+selenium
+webdriver-manager
