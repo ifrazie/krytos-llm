@@ -3,7 +3,7 @@ name: Run tests and upload coverage
 on: 
   push:
     branches:
-      - main
+      - master
 
 env:
   PYTHON_VERSION: 3.11
