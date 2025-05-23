@@ -73,7 +73,7 @@ def create_error_response(tool_name: str, error: Exception, target: str) -> dict
 
 # Simulated Exploitation
 def sql_injection(url: str) -> dict:
-    """Test for SQL injection vulnerabilities
+    """Test a website for SQL injection vulnerabilities
     
     Args:
         url (str): The URL to test for SQL injection vulnerabilities.
@@ -116,7 +116,7 @@ def sql_injection(url: str) -> dict:
 
 # Vulnerability Scanning
 def check_vulnerability(domain: str) -> dict:
-    """Scan for vulnerabilities in a given domain
+    """Scan for vulnerabilities in a domain
     Args:
         domain (str): The domain to scan for vulnerabilities.
     
@@ -167,7 +167,7 @@ def check_vulnerability(domain: str) -> dict:
 
 # Port Scanning
 def scan_network(ip_address: str) -> dict:
-    """Scan an IP address for open ports and services.
+    """Retrieve information about open ports and services using an IP address.
     
     Args:
         ip_address (str): The IP address to scan for open ports.
@@ -282,7 +282,7 @@ def scan_network(ip_address: str) -> dict:
 
 # Information Gathering
 def get_info(domain: str) -> dict:
-    """Get detailed information about a domain using DNS and WHOIS lookups.
+    """Retrive detailed information about a domain using DNS and WHOIS lookups.
     
     Args:
         domain (str): The domain to gather information about.
