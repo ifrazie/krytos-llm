@@ -2,7 +2,7 @@ streamlit
 ollama
 pyyaml
 pymilvus>=2.4.2
-sentence-transformers
+sentence-transformers~=2.4.3
 setuptools~=75.9.1
 langchain-core~=0.3.43
 langchain-community
@@ -13,7 +13,7 @@ langchain-anthropic~=0.3.9
 langgraph~=0.3.5
 python-nmap
 dnspython
-whois
+python-whois
 pypdf
 
 # Specific versions to resolve dependency conflicts

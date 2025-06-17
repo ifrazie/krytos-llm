@@ -167,7 +167,7 @@ def check_vulnerability(domain: str) -> dict:
 
 # Port Scanning
 def scan_network(ip_address: str) -> dict:
-    """Retrieve information about open ports and services using an IP address.
+    """Use an IP address to scan for open ports and services.
     
     Args:
         ip_address (str): The IP address to scan for open ports.
@@ -191,17 +191,17 @@ def scan_network(ip_address: str) -> dict:
         nm = nmap.PortScanner()
         
         try:
-            nm.scan(ip_address, '1-1024', arguments='-sV --version-intensity 5')
+            nm.scan(ip_address, '1-1024', arguments='-sV')
         except nmap.PortScannerError as e:
             if "root privileges" in str(e).lower() or "permission" in str(e).lower():
                 raise NetworkToolError("Insufficient permissions to run port scan. This scan requires administrator privileges.")
             else:
                 raise
-        
+
         # Initialize open ports list
         open_ports = []
         services = {}
-        
+
         # Group services by their risk level
         high_risk_services = []
         medium_risk_services = []
@@ -271,7 +271,7 @@ def scan_network(ip_address: str) -> dict:
             "scan_details": {
                 "total_ports_scanned": 1024,
                 "scan_time": nm.scanstats()['elapsed'],
-                "scan_type": "TCP SYN + Service Detection"
+                "scan_type": "Comprehensive",
             }
         }
         
@@ -308,9 +308,13 @@ def get_info(domain: str) -> dict:
         try:
             domain_info = whois.whois(domain)
             whois_data = {
-                "registrar": domain_info.registrar,
-                "creation_date": str(domain_info.creation_date),
-                "expiration_date": str(domain_info.expiration_date)
+                "Domain": domain_info.domain,
+                "Registrar": domain_info.registrar,
+                "Creation Date": str(domain_info.creation_date),
+                "Expiration Date": str(domain_info.expiration_date),
+                "Name Servers": domain_info.name_servers,
+                "WHOIS Server": domain_info.whois_server,
+                "Updated Date": str(domain_info.updated_date),
             }
         except:
             whois_data = {"error": "WHOIS lookup failed"}

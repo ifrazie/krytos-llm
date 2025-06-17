@@ -116,7 +116,11 @@ async def process_tool_calls(client, model: str, messages: List[Dict[str, Any]],
     if tool_outputs:
         try:
             # Add the model's initial response with tool calls
-            messages.append(response.message)
+            # Convert response.message to a dict with 'role' and 'content'
+            messages.append({
+                'role': getattr(response.message, 'role', 'assistant'),
+                'content': getattr(response.message, 'content', '')
+            })
             
             # Add each tool output as a separate message
             for tool_output in tool_outputs:
@@ -152,7 +156,11 @@ async def process_tool_calls(client, model: str, messages: List[Dict[str, Any]],
             return f"⚠️ {user_message} Please try again.", tool_info
     
     # If no tool calls, return the original response with no tool info
-    return response.message.content, None
+    # Ensure response.message.content is a string, not None
+    content = getattr(response.message, 'content', '')
+    if content is None:
+        content = ''
+    return content, None
 
 def format_tool_info_for_display(tool_info: List[str]) -> str:
     """Format tool usage information for display to the user"""
