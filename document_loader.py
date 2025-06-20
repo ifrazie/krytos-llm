@@ -4,7 +4,7 @@ import logging
 from typing import List, Dict, Any, Optional
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from pymilvus import (
     MilvusClient,
     DataType,
@@ -158,20 +158,23 @@ class DocumentLoader:
         try:
             if self.testing_mode:
                 return [[0.1, 0.2, 0.3] for _ in texts]
-                
+
             if not texts:
                 raise EmbeddingError("Cannot generate embeddings: no text provided")
-                
+
+            if self.embeddings is None:
+                raise EmbeddingError("Embedding model is not initialized.")
+
             embeddings = self.embeddings.embed_documents(texts)
-            
+
             # Validate the embeddings
             if not embeddings or len(embeddings) == 0:
                 raise EmbeddingError("Embedding model returned empty embeddings")
-                
+
             # Check if any embedding has unexpected dimensions
             if any(len(emb) == 0 for emb in embeddings):
                 raise EmbeddingError("One or more embeddings has zero dimensions")
-                
+
             return embeddings
         except EmbeddingError:
             # Re-raise our custom exceptions
@@ -179,7 +182,7 @@ class DocumentLoader:
         except Exception as e:
             error_msg = str(e)
             logging.error(f"Error generating embeddings: {error_msg}")
-            
+
             if "model not found" in error_msg.lower():
                 raise EmbeddingError("Embedding model not found or not properly installed")
             elif "memory" in error_msg.lower():
@@ -193,8 +196,9 @@ class DocumentLoader:
             logging.info(f"Testing mode: Skipping actual Milvus setup for collection {collection_name}")
             return collection_name
         
-        if not self.client and not self.connect():
-            raise MilvusConnectionError("Failed to connect to Milvus. Cannot setup collection.")
+        if not self.client:
+            if not self.connect():
+                raise MilvusConnectionError("Failed to connect to Milvus. Cannot setup collection.")
 
         try:
             # Validate input documents
@@ -225,6 +229,8 @@ class DocumentLoader:
                 FieldSchema(name="metadata", dtype=DataType.JSON)
             ]
 
+            if self.client is None:
+                raise MilvusConnectionError("Milvus client is not initialized.")
             self.client.create_collection(
                 collection_name=collection_name,
                 dimension=dim,
@@ -247,6 +253,8 @@ class DocumentLoader:
                 }
                 insert_data_rows.append(row)
             
+            if self.client is None:
+                raise MilvusConnectionError("Milvus client is not initialized.")
             insert_result = self.client.insert(collection_name=collection_name, data=insert_data_rows)
             self.client.flush(collection_name=collection_name) # Ensure data is flushed
             
@@ -282,32 +290,31 @@ class DocumentLoader:
             logging.info(f"Testing mode: Returning mock documents for query '{query}' from {collection_name}")
             return ["Test document 1", "Test document 2"]
             
-        if not self.client and not self.connect():
-            logging.error("Failed to connect to Milvus. Cannot query documents.")
-            return []
+        if not self.client:
+            if not self.connect():
+                raise MilvusConnectionError("Failed to connect to Milvus. Cannot query documents.")
 
         try:
             # Validate input parameters
             if not query.strip():
                 raise ValueError("Empty query provided")
-                
             if top_k < 1:
                 raise ValueError("top_k must be at least 1")
-                
+            if self.client is None:
+                raise MilvusConnectionError("Milvus client is not initialized.")
             if not self.client.has_collection(collection_name):
                 logging.warning(f"Collection {collection_name} does not exist. Cannot query.")
                 return []
-
             try:
+                if self.embeddings is None:
+                    raise EmbeddingError("Embedding model is not initialized.")
                 query_embedding = self.embeddings.embed_documents([query])[0]
             except Exception as e:
                 raise EmbeddingError(f"Failed to create embedding for query: {str(e)}")
-            
             search_params = {
                 "metric_type": "COSINE",
                 "params": {}, 
             } 
-
             results = self.client.search(
                 collection_name=collection_name,
                 data=[query_embedding],
