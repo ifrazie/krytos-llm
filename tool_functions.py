@@ -4,6 +4,7 @@ from datetime import datetime
 import dns.resolver
 import whois
 import logging
+import hashlib
 
 # Define specific exceptions for better error handling
 class ToolExecutionError(Exception):
@@ -70,6 +71,27 @@ def create_error_response(tool_name: str, error: Exception, target: str) -> dict
             "error_type": error_type
         }
     }
+
+# Hashing
+def hash_text(text: str, algorithm: str = "sha256") -> dict:
+    """Compute a hash for the given text using the selected algorithm."""
+    ts = datetime.now().isoformat()
+    try:
+        algo = algorithm.lower()
+        if algo not in ("sha256", "md5"):
+            raise ValueError(f"Unsupported algorithm: {algorithm}")
+        h = hashlib.sha256() if algo == "sha256" else hashlib.md5()
+        h.update(text.encode("utf-8"))
+        return {
+            "timestamp": ts,
+            "status": "completed",
+            "algorithm": algo,
+            "input_len": len(text),
+            "hash": h.hexdigest(),
+        }
+    except Exception as e:
+        logging.error(f"hash_text error: {e}")
+        return create_error_response("hash_text", e, text)
 
 # Simulated Exploitation
 def sql_injection(url: str) -> dict:
@@ -407,5 +429,6 @@ available_functions = {
     'get_info': get_info,
     'scan_network': scan_network,
     'check_vulnerability': check_vulnerability,
-    'sql_injection': sql_injection
+    'sql_injection': sql_injection,
+    'hash_text': hash_text,
 }

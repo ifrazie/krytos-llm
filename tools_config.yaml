@@ -38,3 +38,17 @@ tools:
         url:
           type: string
           description: The URL to check for SQL injection vulnerabilities
+  
+  - name: hash_text
+    description: Compute a hash of input text
+    parameters:
+      type: object
+      required: [ text ]
+      properties:
+        text:
+          type: string
+          description: The text to hash
+        algorithm:
+          type: string
+          description: Hash algorithm to use
+          enum: [ sha256, md5 ]

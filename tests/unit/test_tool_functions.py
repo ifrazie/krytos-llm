@@ -1,5 +1,7 @@
 from unittest.mock import patch, MagicMock
 from datetime import datetime
+from tool_functions import hash_text
+import hashlib
 
 # Import the functions to be tested
 from tool_functions import get_info, scan_network, check_vulnerability, sql_injection
@@ -127,3 +129,20 @@ class TestToolFunctions:
         assert result["target_url"] == "https://example.com/login"
         assert "details" in result
         assert "recommendations" in result
+
+    def test_hash_text_sha256(self):
+        res = hash_text("hello", "sha256")
+        assert res["status"] == "completed"
+        assert res["algorithm"] == "sha256"
+        assert res["hash"] == hashlib.sha256(b"hello").hexdigest()
+
+    def test_hash_text_md5(self):
+        res = hash_text("hello", "md5")
+        assert res["status"] == "completed"
+        assert res["algorithm"] == "md5"
+        assert res["hash"] == hashlib.md5(b"hello").hexdigest()
+
+    def test_hash_text_bad_algo(self):
+        res = hash_text("hello", "bad")
+        assert res["status"] == "error"
+        assert "Unsupported algorithm" in res.get("error_details", "") or "Unsupported algorithm" in res.get("user_message", "")
