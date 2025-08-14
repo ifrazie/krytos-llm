@@ -191,7 +191,7 @@ def scan_network(ip_address: str) -> dict:
         nm = nmap.PortScanner()
         
         try:
-            nm.scan(ip_address, '1-1024', arguments='-sV')
+            nm.scan(ip_address, arguments='-sV')
         except nmap.PortScannerError as e:
             if "root privileges" in str(e).lower() or "permission" in str(e).lower():
                 raise NetworkToolError("Insufficient permissions to run port scan. This scan requires administrator privileges.")
@@ -228,31 +228,17 @@ def scan_network(ip_address: str) -> dict:
                             medium_risk_services.append(port_entry)
                         else:
                             low_risk_services.append(port_entry)
-        
-        # Assess overall security posture
-        if high_risk_services:
-            risk_level = "High"
-            risk_summary = "Critical services exposed"
-        elif medium_risk_services:
-            risk_level = "Medium"
-            risk_summary = "Some potentially sensitive services exposed"
-        elif low_risk_services:
-            risk_level = "Low"
-            risk_summary = "Only low-risk services detected"
-        else:
-            risk_level = "Minimal"
-            risk_summary = "No open services detected in scan"
             
         # Generate recommendations based on findings
         recommendations = []
-        if 21 in open_ports:
-            recommendations.append("Consider disabling FTP in favor of SFTP")
-        if 23 in open_ports:
-            recommendations.append("Telnet is insecure - replace with SSH immediately")
-        if 80 in open_ports and 443 not in open_ports:
-            recommendations.append("Implement HTTPS for secure web communications")
+        if high_risk_services:
+            recommendations.append("Review and secure high-risk services: " + ", ".join(high_risk_services))
+        if medium_risk_services:
+            recommendations.append("Consider securing medium-risk services: " + ", ".join(medium_risk_services))
+        if low_risk_services:
+            recommendations.append("Low-risk services detected, ensure they are properly configured: " + ", ".join(low_risk_services))
         if not open_ports:
-            recommendations.append("Host appears well-secured with limited attack surface")
+            recommendations.append("No open ports detected, system appears secure")
             
         results = {
             "timestamp": timestamp,
@@ -261,8 +247,6 @@ def scan_network(ip_address: str) -> dict:
             "open_ports": open_ports,
             "services": services,
             "security_assessment": {
-                "risk_level": risk_level,
-                "risk_summary": risk_summary,
                 "high_risk_services": high_risk_services,
                 "medium_risk_services": medium_risk_services,
                 "low_risk_services": low_risk_services

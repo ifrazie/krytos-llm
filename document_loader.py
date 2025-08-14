@@ -1,7 +1,7 @@
 import os
 import json
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
