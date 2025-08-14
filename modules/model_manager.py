@@ -67,17 +67,36 @@ def load_tool_configs() -> List[Dict[str, Any]]:
     try:
         with open('tools_config.yaml', 'r') as file:
             config = yaml.safe_load(file)
-
-        return [{
+        base_tools = [{
             "type": "function",
             "function": tool
         } for tool in config['tools']]
+        # If MCP connected, append MCP tools (namespaced to avoid collisions)
+        try:
+            import streamlit as st
+            if st.session_state.get("mcp_connected", False):
+                from modules import mcp_client
+                mcp_specs = mcp_client.get_ollama_tool_specs()
+                # Namespace MCP tool names to differentiate in executor
+                namespaced = []
+                for spec in mcp_specs:
+                    fn = spec.get("function", {})
+                    if fn.get("name"):
+                        fn = dict(fn)
+                        fn["name"] = f"mcp::{fn['name']}"
+                        spec = dict(spec)
+                        spec["function"] = fn
+                    namespaced.append(spec)
+                base_tools.extend(namespaced)
+        except Exception as e:
+            logging.warning(f"Unable to load MCP tool specs: {e}")
+        return base_tools
     except Exception as e:
         logging.error(f"Error loading tool configs: {str(e)}")
         display_error(e, ErrorCategory.TOOL)
         return []
 
-async def stream_chat_with_tools(model: str, messages: List[Dict[str, Any]]) -> Tuple[str, Optional[List[str]]]:
+async def stream_chat_with_tools(model: str, messages: List[Dict[str, Any]]) -> str:
     """
     Process a chat with the model, potentially using tools
     
@@ -86,7 +105,7 @@ async def stream_chat_with_tools(model: str, messages: List[Dict[str, Any]]) -> 
         messages: List of messages in the conversation history
         
     Returns:
-        Tuple[str, Optional[List[str]]]: The model's response and optional tool info
+        str: The model's response text
     """
     import streamlit as st
     
@@ -102,11 +121,20 @@ async def stream_chat_with_tools(model: str, messages: List[Dict[str, Any]]) -> 
 
         # If function calling is enabled and we have tool calls, process them
         if st.session_state.function_calling_enabled and response.message.tool_calls:
-            response_content, tool_info = await process_tool_calls(client, model, messages, response)
-            return response_content, tool_info
-        
+            # Pass the app's available_functions so test patches are respected
+            try:
+                import app as app_module
+                af_override = getattr(app_module, 'available_functions', None)
+            except Exception:
+                af_override = None
+            result = await process_tool_calls(client, model, messages, response, available_functions_override=af_override)
+            # process_tool_calls may return str or (str, tool_info)
+            if isinstance(result, tuple):
+                return result[0]
+            return result
+
         # No tool calls, just return the response
-        return response.message.content, None
+        return response.message.content or ""
     except Exception as e:
         logging.error(f"Error during streaming: {str(e)}")
         display_error(e, ErrorCategory.TOOL if "tool" in str(e).lower() else ErrorCategory.MODEL)

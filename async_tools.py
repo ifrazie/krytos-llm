@@ -1,9 +1,11 @@
 from ollama import ChatResponse
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Union
 import logging
 
-# Import the functions and dictionary from tool_functions.py
-from tool_functions import available_functions
+# Import the default functions registry; can be overridden by caller
+from tool_functions import available_functions as default_available_functions
+# Back-compat name for tests monkeypatching async_tools.available_functions
+available_functions = default_available_functions
 
 class ToolExecutionError(Exception):
     """Exception raised when a tool fails to execute properly"""
@@ -18,8 +20,13 @@ class ToolResponseError(Exception):
         self.error_message = error_message
         super().__init__(f"Error getting final response after tool execution: {error_message}")
 
-async def process_tool_calls(client, model: str, messages: List[Dict[str, Any]], 
-                            response: ChatResponse) -> Tuple[str, Optional[List[Dict[str, Any]]]]:
+async def process_tool_calls(
+    client,
+    model: str,
+    messages: List[Dict[str, Any]],
+    response: ChatResponse,
+    available_functions_override: Optional[Dict[str, Any]] = None,
+) -> Union[str, Tuple[str, Optional[List[str]]]]:
     """
     Process tool calls from the model response and get the final response.
     
@@ -37,13 +44,22 @@ async def process_tool_calls(client, model: str, messages: List[Dict[str, Any]],
     tool_outputs = []
     tool_info = []
     
+    # If no tool calls at all, maintain backward-compat return type (str)
+    if not getattr(response.message, 'tool_calls', None):
+        content = getattr(response.message, 'content', '')
+        return content if content is not None else ''
+
+    # Use provided registry if available (e.g., patched in tests via app.available_functions)
+    function_registry = available_functions_override or available_functions
+
     # Process each tool call
     if response.message.tool_calls:
         for tool in response.message.tool_calls:
             tool_name = tool.function.name
             tool_args = tool.function.arguments
             
-            if function_to_call := available_functions.get(tool_name):
+            # Check for local tool first
+            if function_to_call := function_registry.get(tool_name):
                 # Create tool call info string
                 tool_call_info = (
                     f"\n🔧 Tool Called: {tool_name}\n"
@@ -98,19 +114,39 @@ async def process_tool_calls(client, model: str, messages: List[Dict[str, Any]],
                 
                 tool_info.append(tool_call_info)
             else:
-                logging.warning(f"Unknown tool called: {tool_name}")
-                tool_call_info = (
-                    f"\n❓ Unknown Tool Called: {tool_name}\n"
-                    f"📝 Parameters: {tool_args}\n"
-                    f"❌ Error: Tool not found in available tools\n"
-                )
-                tool_info.append(tool_call_info)
-                
-                # Add an error message for unknown tools
-                tool_outputs.append({
-                    'output': {"status": "error", "error": f"Tool '{tool_name}' is not available."},
-                    'name': tool_name
-                })
+                # If it's an MCP tool (namespaced), attempt MCP call
+                if isinstance(tool_name, str) and tool_name.startswith("mcp::"):
+                    base_name = tool_name.split("::", 1)[1]
+                    tool_call_info = (
+                        f"\n🔧 MCP Tool Called: {base_name}\n"
+                        f"📝 Parameters: {tool_args}\n"
+                    )
+                    try:
+                        from modules import mcp_client
+                        if not mcp_client.is_connected():
+                            raise RuntimeError("MCP client not connected")
+                        mcp_result = await mcp_client.call_tool(base_name, dict(tool_args or {}))
+                        tool_outputs.append({'output': mcp_result, 'name': tool_name})
+                        tool_call_info += f"📊 Result: {mcp_result}\n"
+                    except Exception as e:
+                        error_message = str(e)
+                        logging.error(f"MCP tool execution error in {base_name}: {error_message}")
+                        tool_call_info += f"❌ Error: {error_message}\n"
+                        tool_outputs.append({'output': {"status": "error", "error": error_message}, 'name': tool_name})
+                    tool_info.append(tool_call_info)
+                else:
+                    logging.warning(f"Unknown tool called: {tool_name}")
+                    tool_call_info = (
+                        f"\n❓ Unknown Tool Called: {tool_name}\n"
+                        f"📝 Parameters: {tool_args}\n"
+                        f"❌ Error: Tool not found in available tools\n"
+                    )
+                    tool_info.append(tool_call_info)
+                    # Add an error message for unknown tools
+                    tool_outputs.append({
+                        'output': {"status": "error", "error": f"Tool '{tool_name}' is not available."},
+                        'name': tool_name
+                    })
     
     # If we have tool outputs, get final response from model
     if tool_outputs:

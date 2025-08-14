@@ -2,11 +2,14 @@ import streamlit as st
 import logging
 import asyncio
 import time
+import os
+import glob
 
 # Import our modules
-from modules.session_manager import initialize_session_state, get_current_session
+from modules.session_manager import initialize_session_state, get_current_session, set_mcp_state
 from modules.error_handler import display_error, ErrorCategory
-from modules.model_manager import verify_model_health, stream_chat_with_tools, load_tool_configs
+from modules.model_manager import verify_model_health, stream_chat_with_tools, load_tool_configs, get_ollama_models
+from tool_functions import available_functions  # re-export for tests patching
 from modules.document_handler import query_documents
 from modules.ui import apply_custom_css, render_sidebar, render_chat_history, render_model_selector, render_chat_download_button
 
@@ -21,7 +24,27 @@ def main():
     # Apply custom CSS for styling
     apply_custom_css()
     
-    st.title("Krytos AI")
+    st.title("Krytos AI Security Analyst")
+
+    # Auto-connect to a local MCP server in mcp-servers/ if available and not already connected
+    try:
+        from modules import mcp_client
+        if not st.session_state.get("mcp_connected", False) and mcp_client.is_available():
+            servers_dir = os.path.join(os.getcwd(), "mcp-servers")
+            candidates = []
+            if os.path.isdir(servers_dir):
+                candidates.extend(sorted(glob.glob(os.path.join(servers_dir, "*.py"))))
+                candidates.extend(sorted(glob.glob(os.path.join(servers_dir, "*.js"))))
+            if candidates:
+                server_spec = candidates[0]
+                try:
+                    tools = asyncio.run(mcp_client.connect(server_spec))
+                    set_mcp_state(True, server_spec, tools)
+                    logging.info(f"Auto-connected to MCP server: {server_spec} with {len(tools)} tools")
+                except Exception as e:
+                    logging.warning(f"Auto-connect to MCP server failed: {e}")
+    except Exception as e:
+        logging.debug(f"MCP auto-connect skipped: {e}")
     
     # Render sidebar with document upload, settings, and session management
     render_sidebar()
@@ -41,7 +64,7 @@ def main():
     
     # Select model and update session with user's selection
     default_model_index = 0
-    available_models = ["llama3.1:latest"]  # Fallback value
+    available_models = ["gpt-oss:20b"]  # Fallback value
     
     try:
         from modules.model_manager import get_ollama_models
@@ -116,7 +139,7 @@ def main():
                                 # Continue without context if there's an error
                                 
                         # Process the chat with potential tool calls
-                        response_message, tool_info = asyncio.run(stream_chat_with_tools(model, current_messages))
+                        response_message = asyncio.run(stream_chat_with_tools(model, current_messages))
                         
                         # Calculate duration for display
                         duration = time.time() - start_time
@@ -132,10 +155,7 @@ def main():
                         
                         # Display the response and duration
                         st.markdown(display_message)
-                        if tool_info:
-                            with st.expander("Tool Usage Details", expanded=False):
-                                for info in tool_info:
-                                    st.markdown(info)
+                        # Tool details are already summarized in the response when applicable
                         st.write(f"Duration: {duration:.2f} seconds")
                         logging.info(f"Response generated, Duration: {duration:.2f} s")
 

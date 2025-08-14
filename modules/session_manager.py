@@ -18,6 +18,14 @@ def initialize_session_state():
         st.session_state.function_calling_enabled = False
     if 'messages' not in st.session_state:
         st.session_state.messages = []
+
+    # MCP client connection state
+    if 'mcp_connected' not in st.session_state:
+        st.session_state.mcp_connected = False
+    if 'mcp_server_spec' not in st.session_state:
+        st.session_state.mcp_server_spec = ""
+    if 'mcp_tools' not in st.session_state:
+        st.session_state.mcp_tools = []  # cached list of MCP tools
     
     # Add session management
     if 'sessions' not in st.session_state:
@@ -116,3 +124,11 @@ def serialize_message(message: Any) -> Dict[str, Any]:
         "content": getattr(message, "content", ""),
         "name": getattr(message, "name", None) if hasattr(message, "name") else None
     }
+
+def set_mcp_state(connected: bool, server_spec: Optional[str] = None, tools: Optional[list] = None) -> None:
+    """Update MCP connection state in session."""
+    st.session_state.mcp_connected = connected
+    if server_spec is not None:
+        st.session_state.mcp_server_spec = server_spec
+    if tools is not None:
+        st.session_state.mcp_tools = tools

@@ -1,3 +1,7 @@
+---
+applyTo: "**/*.py"
+---
+
 # Build an MCP Client
 
 > Get started building your own client that can integrate with all MCP servers.

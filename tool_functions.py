@@ -5,6 +5,7 @@ import dns.resolver
 import whois
 import logging
 import hashlib
+import re
 
 # Define specific exceptions for better error handling
 class ToolExecutionError(Exception):
@@ -74,20 +75,39 @@ def create_error_response(tool_name: str, error: Exception, target: str) -> dict
 
 # Hashing
 def hash_text(text: str, algorithm: str = "sha256") -> dict:
-    """Compute a hash for the given text using the selected algorithm."""
+    """Compute a hash for the given text using the selected algorithm.
+    Supports 'md5' and any available SHA algorithms (e.g., sha1, sha224, sha256, sha384, sha512, sha3_256, etc.).
+    Hyphen/underscore variants like 'sha-256' or 'sha3-256' are accepted.
+    """
     ts = datetime.now().isoformat()
     try:
-        algo = algorithm.lower()
-        if algo not in ("sha256", "md5"):
-            raise ValueError(f"Unsupported algorithm: {algorithm}")
-        h = hashlib.sha256() if algo == "sha256" else hashlib.md5()
-        h.update(text.encode("utf-8"))
+        user_alg = (algorithm or "sha256").strip().lower()
+        sanitized = re.sub(r"[-_]", "", user_alg)
+
+        # Build a lookup from normalized name (no '-' or '_') to actual algo name
+        available = {a.lower(): a for a in hashlib.algorithms_available}
+        selected_name = None
+        for lower_name in available.keys():
+            if re.sub(r"[-_]", "", lower_name) == sanitized:
+                selected_name = lower_name
+                break
+
+        if not selected_name:
+            # Construct a helpful supported list (only sha* plus md5)
+            sha_list = sorted([a for a in available.keys() if a.startswith("sha")])
+            raise ValueError(
+                f"Unsupported algorithm: {algorithm}. Supported: md5 or any of {sha_list}"
+            )
+
+        # hashlib.new expects a canonical algorithm name (lowercase works across platforms)
+        hasher = hashlib.new(selected_name)
+        hasher.update(text.encode("utf-8"))
         return {
             "timestamp": ts,
             "status": "completed",
-            "algorithm": algo,
+            "algorithm": selected_name,
             "input_len": len(text),
-            "hash": h.hexdigest(),
+            "hash": hasher.hexdigest(),
         }
     except Exception as e:
         logging.error(f"hash_text error: {e}")
@@ -314,15 +334,15 @@ def get_info(domain: str) -> dict:
         try:
             domain_info = whois.whois(domain)
             whois_data = {
-                "Domain": domain_info.domain,
-                "Registrar": domain_info.registrar,
-                "Creation Date": str(domain_info.creation_date),
-                "Expiration Date": str(domain_info.expiration_date),
-                "Name Servers": domain_info.name_servers,
-                "WHOIS Server": domain_info.whois_server,
-                "Updated Date": str(domain_info.updated_date),
+                "domain": getattr(domain_info, "domain", None),
+                "registrar": getattr(domain_info, "registrar", None),
+                "creation_date": str(getattr(domain_info, "creation_date", "")),
+                "expiration_date": str(getattr(domain_info, "expiration_date", "")),
+                "name_servers": getattr(domain_info, "name_servers", None),
+                "whois_server": getattr(domain_info, "whois_server", None),
+                "updated_date": str(getattr(domain_info, "updated_date", "")),
             }
-        except:
+        except Exception:
             whois_data = {"error": "WHOIS lookup failed"}
         
         # Check for SPF, DKIM, DMARC records
@@ -422,7 +442,10 @@ def get_info(domain: str) -> dict:
         }
     except Exception as e:
         logging.error(f"Information gathering error for {domain}: {str(e)}")
-        return create_error_response("get_info", e, domain)
+        err = create_error_response("get_info", e, domain)
+        err["error"] = str(e)
+        err["domain"] = domain
+        return err
 
 # Dictionary mapping function names to their implementations
 available_functions = {

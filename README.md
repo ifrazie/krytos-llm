@@ -15,6 +15,7 @@ AI-powered chat interface for security analysis that integrates with Ollama LLMs
   - SQL injection testing
 - Session management for organizing conversations
 - Document upload and analysis
+ - Optional MCP client to connect to external MCP servers and use their tools
 
 ## Installation
 
@@ -78,6 +79,18 @@ streamlit run app.py
 ```
 
 3. **Access the application in your browser:** http://localhost:8501
+
+#### MCP Client (Optional)
+
+To enable MCP client features, install the MCP SDK and connect via the sidebar:
+
+```bash
+pip install mcp
+```
+
+In the sidebar under "MCP Client":
+- Enter a path to a server script (e.g., weather.py) or a command (e.g., `npx -y @modelcontextprotocol/server-brave-search`).
+- Click Connect. Available tools will appear under "MCP Tools" and become usable when Function Calling is enabled.
 
 ### Using the Application
 
