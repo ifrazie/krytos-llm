@@ -16,6 +16,8 @@ python-nmap
 dnspython
 python-whois
 pypdf
+mcp
+psutil
 
 # Specific versions to resolve dependency conflicts
 protobuf>=4.25.7,<5.0.0
