@@ -2,7 +2,7 @@ streamlit
 ollama
 pyyaml
 pymilvus>=2.4.2
-sentence-transformers~=2.4.3
+sentence-transformers>=2.4.3
 setuptools~=75.9.1
 langchain-core~=0.3.43
 langchain-community
@@ -15,6 +15,7 @@ python-nmap
 dnspython
 python-whois
 pypdf
+mcp
 
 # Specific versions to resolve dependency conflicts
 protobuf>=4.25.7,<5.0.0
